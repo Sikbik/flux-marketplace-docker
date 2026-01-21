@@ -83,7 +83,7 @@ jobs:
         with:
           images: ${{ steps.images.outputs.images }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
             type=sha,format=short
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
@@ -101,4 +101,3 @@ jobs:
             BASE_DIGEST=${{ steps.upstream.outputs.digest }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
