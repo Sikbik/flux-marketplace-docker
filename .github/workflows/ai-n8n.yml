@@ -89,6 +89,41 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "Upstream digest: $DIGEST"
 
+      - name: Current base digest (published latest)
+        id: current
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${IMAGE_NAME}:latest"
+          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+            IMAGE="${DOCKERHUB_NAMESPACE}/n8n:latest"
+          fi
+
+          if docker pull "$IMAGE" >/dev/null 2>&1; then
+            DIGEST="$(docker inspect "$IMAGE" | jq -r '.[0].Config.Labels["base.digest"] // "none"')"
+          else
+            DIGEST="none"
+          fi
+
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Current digest: $DIGEST"
+
+      - name: Decide whether to build
+        id: shouldbuild
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ steps.upstream.outputs.digest }}" != "${{ steps.current.outputs.digest }}" ]; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "Upstream changed; building."
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "Upstream unchanged; skipping build."
+            fi
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -100,6 +135,7 @@ jobs:
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build (and push)
+        if: ${{ steps.shouldbuild.outputs.build == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: ./AI/n8n

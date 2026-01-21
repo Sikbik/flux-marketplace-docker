@@ -10,4 +10,4 @@ docker build -t n8n-flux:local ./AI/n8n
 
 ## CI
 
-The repo workflow can rebuild on a schedule to pick up upstream `docker.n8n.io/n8nio/n8n:latest` changes.
+The repo workflow runs daily and only rebuilds/pushes when upstream `docker.n8n.io/n8nio/n8n:latest` changes.
