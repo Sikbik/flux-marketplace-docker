@@ -6,6 +6,7 @@ Monorepo for Flux Marketplace / FluxOS-friendly Docker images.
 
 - `Gaming/<project>/` → one Docker image (with its own `Dockerfile`, `README.md`, and optional `flux-spec.json`)
 - `AI/<project>/` → one Docker image for AI / automation tooling
+- `Infrastructure/<project>/` → infrastructure/support images
 - `Blockchain/<project>/` → (reserved) blockchain-related images
 
 ## Local builds
