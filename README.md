@@ -24,4 +24,4 @@ Each project has a dedicated GitHub Actions workflow that:
 - pushes images to GHCR on `main` (and on manual dispatch for versioned tags),
 - only triggers when files under that project folder change.
 
-Optional: if you add repo secrets `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN`, workflows also push to Docker Hub.
+Optional: if you add repo secret `DOCKERHUB_TOKEN`, workflows also push to Docker Hub under `littlestache/*`.
