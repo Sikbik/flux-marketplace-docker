@@ -194,7 +194,7 @@ DISABLE_DROP_ITEMS_ON_DEATH=False
 ### Private Friends Server
 ```bash
 HOST_SERVER_DISPLAY_NAME=Friends Only
-HOST_SERVER_PASSWORD=secretpassword123
+HOST_SERVER_PASSWORD=<set-a-password-or-leave-blank>
 MAX_PLAYERS=4
 ```
 

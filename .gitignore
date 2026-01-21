@@ -6,4 +6,6 @@
 # Common local persistent data folders
 **/serverdata/
 **/hytale-data/
-
+**/n8n-data/
+**/.n8n/
+**/starrupture-saves/
