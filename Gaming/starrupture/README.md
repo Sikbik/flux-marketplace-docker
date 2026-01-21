@@ -8,6 +8,7 @@ StarRupture's Remote Control API.
 ## Quick start
 
 ```bash
+# From repo root:
 docker build -t starrupture:flux ./Gaming/starrupture
 
 docker run --rm -it \
