@@ -1,4 +1,4 @@
-# flux-marketplace-dockers
+# flux-marketplace-docker
 
 Monorepo for Flux Marketplace / FluxOS-friendly Docker images.
 
