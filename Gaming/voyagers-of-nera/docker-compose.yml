@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  voyagers-of-nera:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voyagers-of-nera-server
+    restart: unless-stopped
+
+    environment:
+      # Network Settings
+      - SERVER_PORT=7777
+      - EOS_OVERRIDE_HOST_IP=  # Set to your public IP for external connections
+      - ENABLE_LOGGING=true
+      - ONLINE_SUBSYSTEM=  # Set to Steam or RedpointEOS to override Engine.ini
+      - QUERY_PORT=  # Steam server query port (e.g., 27015)
+      - WINE_TRICKS=  # Optional winetricks packages (e.g., vcrun2019)
+      - MANAGE_CONFIG=true  # Set true to generate configs from env
+      - CLEAR_ENGINE_INI=false  # Set true to remove Engine.ini overrides
+      - CLEAR_CUSTOM_CONFIGS=false  # Set true to remove CustomHost/CustomGame INI overrides
+      - DISABLE_PRESENCE=false  # Set true to disable presence/lobby advertising (best-effort)
+      - EOS_DEPLOYMENT_ID=  # Override EOS DeploymentId to align with client
+      - USE_STUB_EXE=false  # Use the shipping EXE by default
+
+      # Host Server Settings (CustomHostServerUserSettings.ini, only when MANAGE_CONFIG=true)
+      - HOST_SERVER_DISPLAY_NAME=flux
+      - HOST_SERVER_PASSWORD=  # Leave empty for no password
+      - MAX_PLAYERS=10  # 1-10 players
+      - AUTOSAVE_TIMER_SECONDS=300  # 10-900 seconds (default: 5 minutes)
+
+      # Game Server Settings (CustomGameUserSettings.ini, only when MANAGE_CONFIG=true)
+      - GATHERING_RATE_MULTIPLIER=1.0  # 0.01-10.0
+      - ENEMY_DAMAGE_MULTIPLIER=1.0  # 0.01-10.0
+      - PLAYER_DAMAGE_MULTIPLIER=1.0  # 0.01-10.0
+      - DISABLE_EQUIPMENT_DURABILITY=False  # True = equipment never breaks
+      - DISABLE_DROP_ITEMS_ON_DEATH=False  # True = keep inventory on death
+
+      # User/Group IDs (optional, for file permissions)
+      - PUID=1000
+      - PGID=1000
+
+    ports:
+      - "7777:7777/udp"
+      - "7778:7778/udp"
+      # - "27015:27015/udp"
+
+    volumes:
+      - ./serverdata:/home/steam/nera/server/BoatGame/Saved
+
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 6G
+
+    cap_add:
+      - SYS_NICE
+
+    stdin_open: true
+    tty: true

@@ -1,0 +1,9 @@
+.DS_Store
+.tmp_dockerconfig/
+
+**/__pycache__/
+
+# Common local persistent data folders
+**/serverdata/
+**/hytale-data/
+

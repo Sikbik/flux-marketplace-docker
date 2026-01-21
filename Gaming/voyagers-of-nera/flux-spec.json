@@ -1,0 +1,37 @@
+{
+  "version": 8,
+  "name": "voyagersofnera",
+  "description": "Decentralized Voyagers of Nera Dedicated Server on Flux",
+  "owner": "YOUR_ZELID_HERE",
+  "instances": 3,
+  "staticip": false,
+  "enterprise": "",
+  "compose": [
+    {
+      "name": "neraserver",
+      "description": "Voyagers of Nera dedicated game server",
+      "repotag": "YOUR_DOCKERHUB_USERNAME/voyagers-of-nera-server:latest",
+      "ports": [7777, 7778],
+      "containerPorts": [7777, 7778],
+      "domains": [""],
+      "environmentParameters": [
+        "EOS_OVERRIDE_HOST_IP=voyagersofnera.app.runonflux.io",
+        "HOST_SERVER_DISPLAY_NAME=flux",
+        "HOST_SERVER_PASSWORD=",
+        "MAX_PLAYERS=10",
+        "AUTOSAVE_TIMER_SECONDS=300",
+        "GATHERING_RATE_MULTIPLIER=1.0",
+        "ENEMY_DAMAGE_MULTIPLIER=1.0",
+        "PLAYER_DAMAGE_MULTIPLIER=1.0",
+        "DISABLE_EQUIPMENT_DURABILITY=False",
+        "DISABLE_DROP_ITEMS_ON_DEATH=False"
+      ],
+      "commands": [],
+      "containerData": "g:/home/steam/nera/server/BoatGame/Saved",
+      "cpu": 2.0,
+      "ram": 8000,
+      "hdd": 20,
+      "tiered": false
+    }
+  ]
+}

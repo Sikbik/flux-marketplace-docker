@@ -1,0 +1,33 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Local data & build artifacts
+hytale-data/
+data/
+.tmp_dockerconfig/
+Server/
+Assets.zip
+game.zip
+.extract/
+
+# Secrets (prevent accidental commits)
+.env
+.env.*
+*.pem
+*.key

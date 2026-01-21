@@ -1,0 +1,56 @@
+{
+  "version": 8,
+  "name": "starrupture",
+  "description": "StarRupture dedicated server (Wine + SteamCMD, Flux-ready)",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam/Wine (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 50,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "StarRupture server (g:/ SaveGames; local /data install)",
+      "repotag": "littlestache/starrupture-flux:latest",
+      "ports": [7777, 27015],
+      "domains": ["", ""],
+      "environmentParameters": [
+        "STEAM_INSTALL_DIR=/data/server",
+        "SYNC_SAVES_ONLY=true",
+        "SERVER_NAME=RunOnFlux",
+        "HARDEN_FLUX_VOLUME_BROWSER=true",
+        "SR_ADMIN_PASSWORD_TOKEN=",
+        "SR_PLAYER_PASSWORD_TOKEN="
+      ],
+      "commands": [],
+      "containerPorts": [7777, 27015],
+      "containerData": "g:/saves|0:/data",
+      "cpu": 4,
+      "ram": 16384,
+      "hdd": 2,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}

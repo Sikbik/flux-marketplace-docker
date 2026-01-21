@@ -1,0 +1,38 @@
+{
+  "version": 8,
+  "name": "hytale-server",
+  "description": "Hytale Dedicated Server (Flux-friendly wrapper)",
+  "owner": "YOUR_ZELID_HERE",
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": "",
+  "compose": [
+    {
+      "name": "server",
+      "description": "Hytale server",
+      "repotag": "littlestache/hytale-flux:latest",
+      "repoauth": "",
+      "ports": [5520],
+      "containerPorts": [5520],
+      "domains": [""],
+      "environmentParameters": [
+        "HYTALE_BIND=0.0.0.0:5520",
+        "HYTALE_AUTH_MODE=authenticated",
+        "HYTALE_AUTH_AUTO=1",
+        "HYTALE_AUTO_DOWNLOAD=1",
+        "HYTALE_EPHEMERAL_CACHE=1",
+        "HYTALE_SERVER_NAME=My Hytale Server",
+        "JAVA_OPTS=-Xms4G -Xmx8G"
+      ],
+      "commands": [],
+      "containerData": "g:/data",
+      "cpu": 6,
+      "ram": 12000,
+      "hdd": 30
+    }
+  ]
+}

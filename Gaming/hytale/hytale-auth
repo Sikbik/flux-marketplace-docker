@@ -1,0 +1,649 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+OAUTH_DEVICE_URL = "https://oauth.accounts.hytale.com/oauth2/device/auth"
+OAUTH_TOKEN_URL = "https://oauth.accounts.hytale.com/oauth2/token"
+PROFILES_URL = "https://account-data.hytale.com/my-account/get-profiles"
+SESSION_NEW_URL = "https://sessions.hytale.com/game-session/new"
+SESSION_REFRESH_URL = "https://sessions.hytale.com/game-session/refresh"
+
+DEFAULT_CLIENT_ID = "hytale-server"
+DEFAULT_SCOPE = "openid offline auth:server"
+DEFAULT_DOWNLOADER_CREDENTIALS_FILENAME = ".hytale-downloader-credentials.json"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+class FatalError(Exception):
+    pass
+
+
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def parse_iso8601(value: str) -> dt.datetime:
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    return dt.datetime.fromisoformat(raw).astimezone(dt.timezone.utc)
+
+
+def format_iso8601(value: dt.datetime) -> str:
+    return value.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def is_expired(expires_at: str | None, skew_seconds: int = 30) -> bool:
+    if not expires_at:
+        return True
+    try:
+        ts = parse_iso8601(expires_at)
+    except Exception:
+        return True
+    return ts <= utc_now() + dt.timedelta(seconds=skew_seconds)
+
+
+def ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path, 0o700)
+    except PermissionError:
+        pass
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise FatalError(f"Unable to parse JSON state at {path}: {exc}") from exc
+
+
+def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    ensure_dir(path.parent)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except PermissionError:
+        pass
+    tmp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except PermissionError:
+        pass
+
+
+def redact(token: str, keep_prefix: int = 6, keep_suffix: int = 4) -> str:
+    if len(token) <= keep_prefix + keep_suffix:
+        return "<redacted>"
+    return f"{token[:keep_prefix]}…{token[-keep_suffix:]}"
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    status: int
+    body: str
+    url: str
+
+    def json(self) -> dict[str, Any]:
+        try:
+            return json.loads(self.body)
+        except Exception as exc:
+            snippet = self.body.strip()
+            if len(snippet) > 400:
+                snippet = snippet[:400] + "…"
+            if not snippet:
+                snippet = "<empty body>"
+            raise FatalError(
+                f"Unexpected non-JSON response (HTTP {self.status}) from {self.url}: {snippet}"
+            ) from exc
+
+
+def http_request(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    data: bytes | None = None,
+    timeout_seconds: int = 20,
+) -> HttpResponse:
+    merged_headers = dict(headers or {})
+    merged_headers.setdefault("User-Agent", DEFAULT_USER_AGENT)
+    merged_headers.setdefault("Accept", "application/json, text/plain, */*")
+    req = urllib.request.Request(url, method=method, headers=merged_headers, data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            return HttpResponse(status=int(resp.status), body=resp.read().decode("utf-8", errors="replace"), url=url)
+    except urllib.error.HTTPError as err:
+        body = ""
+        try:
+            body = err.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return HttpResponse(status=int(err.code), body=body, url=url)
+    except Exception as exc:
+        raise FatalError(f"HTTP request failed ({method} {url}): {exc}") from exc
+
+
+def form_encode(fields: dict[str, str]) -> bytes:
+    return urllib.parse.urlencode(fields).encode("utf-8")
+
+
+def oauth_device_code(client_id: str, scope: str) -> dict[str, Any]:
+    resp = http_request(
+        OAUTH_DEVICE_URL,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data=form_encode({"client_id": client_id, "scope": scope}),
+    )
+    payload = resp.json()
+    if resp.status >= 400:
+        raise FatalError(f"Device auth request failed (HTTP {resp.status}): {payload}")
+    return payload
+
+
+def oauth_poll_token(client_id: str, device_code: str, interval_seconds: int, expires_in_seconds: int) -> dict[str, Any]:
+    deadline = time.monotonic() + max(1, expires_in_seconds)
+    wait = max(1, interval_seconds)
+    while True:
+        if time.monotonic() > deadline:
+            raise FatalError("Device code expired before authorization completed.")
+
+        resp = http_request(
+            OAUTH_TOKEN_URL,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=form_encode(
+                {
+                    "client_id": client_id,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code,
+                }
+            ),
+        )
+        payload = resp.json()
+
+        if resp.status == 200 and "access_token" in payload:
+            return payload
+
+        err = str(payload.get("error", "")).strip()
+        if err == "authorization_pending":
+            time.sleep(wait)
+            continue
+        if err == "slow_down":
+            wait = min(wait + 2, 30)
+            time.sleep(wait)
+            continue
+        if err == "access_denied":
+            raise FatalError("Authorization was denied by the user.")
+        if err == "expired_token":
+            raise FatalError("Device code expired.")
+
+        raise FatalError(f"Unexpected device token response (HTTP {resp.status}): {payload}")
+
+
+def oauth_refresh_access_token(client_id: str, refresh_token: str) -> dict[str, Any]:
+    resp = http_request(
+        OAUTH_TOKEN_URL,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data=form_encode({"client_id": client_id, "grant_type": "refresh_token", "refresh_token": refresh_token}),
+    )
+    payload = resp.json()
+    if resp.status >= 400:
+        raise FatalError(f"OAuth refresh failed (HTTP {resp.status}): {payload}")
+    if "access_token" not in payload:
+        raise FatalError(f"OAuth refresh response missing access_token: {payload}")
+    return payload
+
+
+def get_profiles(access_token: str) -> dict[str, Any]:
+    resp = http_request(PROFILES_URL, headers={"Authorization": f"Bearer {access_token}"})
+    payload = resp.json()
+    if resp.status >= 400:
+        raise FatalError(f"Get profiles failed (HTTP {resp.status}): {payload}")
+    return payload
+
+
+def create_game_session(access_token: str, profile_uuid: str) -> dict[str, Any]:
+    resp = http_request(
+        SESSION_NEW_URL,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps({"uuid": profile_uuid}).encode("utf-8"),
+    )
+    payload = resp.json()
+    if resp.status >= 400:
+        raise FatalError(f"Create session failed (HTTP {resp.status}): {payload}")
+    if "sessionToken" not in payload or "identityToken" not in payload:
+        raise FatalError(f"Create session response missing tokens: {payload}")
+    return payload
+
+
+def refresh_game_session(session_token: str) -> dict[str, Any]:
+    resp = http_request(
+        SESSION_REFRESH_URL,
+        method="POST",
+        headers={"Authorization": f"Bearer {session_token}"},
+        data=b"",
+    )
+    payload: dict[str, Any] = {}
+    if resp.body.strip():
+        payload = resp.json()
+    if resp.status >= 400:
+        raise FatalError(f"Session refresh failed (HTTP {resp.status}): {payload or resp.body}")
+    return payload
+
+
+def select_profile(
+    profiles_payload: dict[str, Any],
+    *,
+    desired_uuid: str | None,
+    desired_username: str | None,
+) -> dict[str, str]:
+    profiles = profiles_payload.get("profiles")
+    if not isinstance(profiles, list):
+        raise FatalError(f"Profiles payload missing 'profiles' list: {profiles_payload}")
+
+    normalized: list[dict[str, str]] = []
+    for item in profiles:
+        if not isinstance(item, dict):
+            continue
+        uuid = str(item.get("uuid", "")).strip()
+        username = str(item.get("username", "")).strip()
+        if uuid:
+            normalized.append({"uuid": uuid, "username": username})
+
+    if not normalized:
+        raise FatalError("No game profiles returned for this account.")
+
+    if desired_uuid:
+        for profile in normalized:
+            if profile["uuid"] == desired_uuid:
+                return profile
+        raise FatalError(
+            "Requested profile UUID not found. "
+            f"Set HYTALE_AUTH_PROFILE_UUID to one of: {[p['uuid'] for p in normalized]}"
+        )
+
+    if desired_username:
+        target = desired_username.lower()
+        matches = [p for p in normalized if p.get("username", "").lower() == target]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise FatalError(f"Multiple profiles match username {desired_username!r}; use HYTALE_AUTH_PROFILE_UUID.")
+        raise FatalError(
+            "Requested profile username not found. "
+            f"Available: {[p.get('username','') + ' (' + p['uuid'] + ')' for p in normalized]}"
+        )
+
+    if len(normalized) == 1:
+        return normalized[0]
+
+    listing = "\n".join([f"- {p.get('username','')}  {p['uuid']}" for p in normalized])
+    raise FatalError(
+        "Multiple game profiles found. Select one by setting HYTALE_AUTH_PROFILE_UUID (recommended) "
+        "or HYTALE_AUTH_PROFILE_USERNAME, then restart.\n"
+        f"Available profiles:\n{listing}"
+    )
+
+
+def ensure_access_token(state: dict[str, Any], *, client_id: str, allow_device_flow: bool) -> str:
+    oauth = state.setdefault("oauth", {})
+    if isinstance(oauth, dict):
+        access_token = str(oauth.get("access_token", "")).strip()
+        refresh_token = str(oauth.get("refresh_token", "")).strip()
+        access_expires_at = str(oauth.get("access_token_expires_at", "")).strip() or None
+        disable_downloader_import = bool(oauth.get("disable_downloader_import"))
+    else:
+        access_token = ""
+        refresh_token = ""
+        access_expires_at = None
+        disable_downloader_import = False
+
+    if access_token and not is_expired(access_expires_at, skew_seconds=60):
+        return access_token
+
+    if not refresh_token:
+        if not disable_downloader_import:
+            downloader_refresh = import_refresh_token_from_downloader_credentials()
+            if downloader_refresh:
+                oauth["refresh_token"] = downloader_refresh
+                oauth["imported_from"] = DEFAULT_DOWNLOADER_CREDENTIALS_FILENAME
+                oauth["imported_at"] = format_iso8601(utc_now())
+                refresh_token = downloader_refresh
+
+    if refresh_token:
+        refreshed = oauth_refresh_access_token(client_id, refresh_token)
+        oauth["access_token"] = refreshed["access_token"]
+        oauth["token_type"] = refreshed.get("token_type", "Bearer")
+        oauth["scope"] = refreshed.get("scope", oauth.get("scope"))
+
+        expires_in = int(refreshed.get("expires_in", 3600))
+        oauth["access_token_expires_at"] = format_iso8601(utc_now() + dt.timedelta(seconds=expires_in))
+
+        new_refresh = str(refreshed.get("refresh_token", "")).strip()
+        if new_refresh:
+            oauth["refresh_token"] = new_refresh
+
+        return str(oauth["access_token"])
+
+    if not allow_device_flow:
+        raise FatalError(
+            "No refresh token present. Run device login once to store OAuth tokens (or set HYTALE_AUTH_AUTO=1)."
+        )
+
+    device = oauth_device_code(client_id, DEFAULT_SCOPE)
+    verification = str(device.get("verification_uri_complete") or device.get("verification_uri") or "").strip()
+    user_code = str(device.get("user_code") or "").strip()
+    interval = int(device.get("interval", 5))
+    expires_in = int(device.get("expires_in", 900))
+    device_code = str(device.get("device_code") or "").strip()
+    if not device_code or not verification:
+        raise FatalError(f"Unexpected device auth response: {device}")
+
+    print("Hytale device authorization required.")
+    print(f"- URL: {verification}")
+    if user_code and "user_code=" not in verification:
+        print(f"- Code: {user_code}")
+    print(f"- Expires in: {expires_in} seconds")
+    print("")
+
+    tokens = oauth_poll_token(client_id, device_code, interval, expires_in)
+    oauth["access_token"] = tokens["access_token"]
+    oauth["refresh_token"] = tokens.get("refresh_token", oauth.get("refresh_token"))
+    oauth["token_type"] = tokens.get("token_type", "Bearer")
+    oauth["scope"] = tokens.get("scope", DEFAULT_SCOPE)
+    oauth["access_token_expires_at"] = format_iso8601(utc_now() + dt.timedelta(seconds=int(tokens.get("expires_in", 3600))))
+    oauth["obtained_at"] = format_iso8601(utc_now())
+
+    if not str(oauth.get("refresh_token", "")).strip():
+        raise FatalError("OAuth device flow succeeded but did not return a refresh_token.")
+
+    return str(oauth["access_token"])
+
+
+def should_retry_with_device_flow(exc: FatalError) -> bool:
+    msg = str(exc).lower()
+    return (
+        "invalid token" in msg
+        or "invalid authorization header" in msg
+        or "invalid_grant" in msg
+    )
+
+
+def force_device_flow(state: dict[str, Any]) -> None:
+    oauth = state.setdefault("oauth", {})
+    if not isinstance(oauth, dict):
+        oauth = {}
+        state["oauth"] = oauth
+
+    oauth["disable_downloader_import"] = True
+    for key in ("access_token", "access_token_expires_at", "refresh_token", "token_type", "scope"):
+        oauth.pop(key, None)
+
+    state.pop("profile", None)
+    state.pop("session", None)
+
+
+def import_refresh_token_from_downloader_credentials() -> str | None:
+    data_dir = os.environ.get("DATA_DIR", "/data")
+    credentials_path = Path(
+        os.environ.get(
+            "HYTALE_DOWNLOADER_CREDENTIALS_PATH",
+            str(Path(data_dir) / DEFAULT_DOWNLOADER_CREDENTIALS_FILENAME),
+        )
+    )
+    if not credentials_path.exists():
+        return None
+    try:
+        payload = json.loads(credentials_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    token = find_refresh_token(payload)
+    if token and len(token) >= 10:
+        return token
+    return None
+
+
+def find_refresh_token(obj: Any) -> str | None:
+    if isinstance(obj, dict):
+        for key in ("refresh_token", "refreshToken", "refresh"):
+            value = obj.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for key, value in obj.items():
+            if isinstance(value, str) and "refresh" in str(key).lower() and value.strip():
+                return value.strip()
+        for value in obj.values():
+            token = find_refresh_token(value)
+            if token:
+                return token
+        return None
+    if isinstance(obj, list):
+        for value in obj:
+            token = find_refresh_token(value)
+            if token:
+                return token
+        return None
+    return None
+
+
+def ensure_profile(state: dict[str, Any], *, access_token: str, desired_uuid: str | None, desired_username: str | None) -> dict[str, str]:
+    existing = state.get("profile")
+    if isinstance(existing, dict) and str(existing.get("uuid", "")).strip():
+        return {"uuid": str(existing.get("uuid")).strip(), "username": str(existing.get("username", "")).strip()}
+
+    payload = get_profiles(access_token)
+    profile = select_profile(payload, desired_uuid=desired_uuid, desired_username=desired_username)
+    state["profile"] = {
+        "uuid": profile["uuid"],
+        "username": profile.get("username", ""),
+        "owner": str(payload.get("owner", "")).strip(),
+        "fetched_at": format_iso8601(utc_now()),
+    }
+    return profile
+
+
+def ensure_session(
+    state: dict[str, Any],
+    *,
+    access_token: str,
+    profile_uuid: str,
+    force_new: bool,
+) -> dict[str, str]:
+    existing = state.get("session")
+    if not force_new and isinstance(existing, dict):
+        session_token = str(existing.get("sessionToken", "")).strip()
+        identity_token = str(existing.get("identityToken", "")).strip()
+        expires_at = str(existing.get("expiresAt", "")).strip() or None
+        if session_token and identity_token and not is_expired(expires_at, skew_seconds=120):
+            return {"sessionToken": session_token, "identityToken": identity_token, "expiresAt": expires_at or ""}
+
+    session = create_game_session(access_token, profile_uuid)
+    state["session"] = {
+        "sessionToken": session["sessionToken"],
+        "identityToken": session["identityToken"],
+        "expiresAt": session.get("expiresAt", ""),
+        "created_at": format_iso8601(utc_now()),
+    }
+    return {"sessionToken": session["sessionToken"], "identityToken": session["identityToken"], "expiresAt": session.get("expiresAt", "")}
+
+
+def cmd_status(state_path: Path) -> int:
+    state = read_json(state_path)
+    oauth = state.get("oauth") if isinstance(state.get("oauth"), dict) else {}
+    profile = state.get("profile") if isinstance(state.get("profile"), dict) else {}
+    session = state.get("session") if isinstance(state.get("session"), dict) else {}
+
+    refresh_token = str(oauth.get("refresh_token", "")).strip()
+    access_token = str(oauth.get("access_token", "")).strip()
+    access_expires_at = str(oauth.get("access_token_expires_at", "")).strip() or None
+
+    profile_uuid = str(profile.get("uuid", "")).strip()
+    profile_username = str(profile.get("username", "")).strip()
+
+    session_token = str(session.get("sessionToken", "")).strip()
+    identity_token = str(session.get("identityToken", "")).strip()
+    session_expires_at = str(session.get("expiresAt", "")).strip() or None
+
+    print(f"State: {state_path}")
+    print(f"OAuth refresh token: {'present' if refresh_token else 'missing'}")
+    if access_token:
+        print(f"OAuth access token: present (expires: {access_expires_at or 'unknown'})")
+    else:
+        print("OAuth access token: missing")
+
+    if profile_uuid:
+        print(f"Profile: {profile_username or '<unknown>'} ({profile_uuid})")
+    else:
+        print("Profile: not selected")
+
+    if session_token and identity_token:
+        print(f"Game session: present (expires: {session_expires_at or 'unknown'})")
+        print(f"- sessionToken: {redact(session_token)}")
+        print(f"- identityToken: {redact(identity_token)}")
+    else:
+        print("Game session: missing")
+
+    return 0
+
+
+def cmd_logout(state_path: Path) -> int:
+    if state_path.exists():
+        state_path.unlink()
+    print(f"Cleared auth state: {state_path}")
+    return 0
+
+
+def cmd_ensure(args: argparse.Namespace, state_path: Path) -> int:
+    state = read_json(state_path)
+    if state.get("schemaVersion") is None:
+        state["schemaVersion"] = 1
+
+    desired_uuid = args.profile_uuid or os.environ.get("HYTALE_AUTH_PROFILE_UUID")
+    desired_username = args.profile_username or os.environ.get("HYTALE_AUTH_PROFILE_USERNAME")
+    force_new = bool(args.force_new_session)
+    allow_device = not bool(args.non_interactive)
+
+    try:
+        access_token = ensure_access_token(state, client_id=args.client_id, allow_device_flow=allow_device)
+        profile = ensure_profile(state, access_token=access_token, desired_uuid=desired_uuid, desired_username=desired_username)
+        session = ensure_session(state, access_token=access_token, profile_uuid=profile["uuid"], force_new=force_new)
+    except FatalError as exc:
+        oauth = state.get("oauth") if isinstance(state.get("oauth"), dict) else {}
+        already_forced = bool(oauth.get("disable_downloader_import")) if isinstance(oauth, dict) else False
+        if allow_device and not already_forced and should_retry_with_device_flow(exc):
+            print("Auth token rejected; falling back to a fresh device login flow...")
+            force_device_flow(state)
+            access_token = ensure_access_token(state, client_id=args.client_id, allow_device_flow=True)
+            profile = ensure_profile(state, access_token=access_token, desired_uuid=desired_uuid, desired_username=desired_username)
+            session = ensure_session(state, access_token=access_token, profile_uuid=profile["uuid"], force_new=force_new)
+        else:
+            raise
+
+    write_json_atomic(state_path, state)
+
+    print("Auth ready.")
+    print(f"- profile: {profile.get('username','')} ({profile['uuid']})")
+    print(f"- session expires: {session.get('expiresAt','') or '<unknown>'}")
+    return 0
+
+
+def cmd_refresh_session(state_path: Path) -> int:
+    state = read_json(state_path)
+    session = state.get("session")
+    if not isinstance(session, dict):
+        raise FatalError("No session present to refresh.")
+    session_token = str(session.get("sessionToken", "")).strip()
+    if not session_token:
+        raise FatalError("No sessionToken present to refresh.")
+
+    refreshed = refresh_game_session(session_token)
+    if refreshed.get("sessionToken"):
+        session["sessionToken"] = refreshed["sessionToken"]
+    if refreshed.get("identityToken"):
+        session["identityToken"] = refreshed["identityToken"]
+    if refreshed.get("expiresAt"):
+        session["expiresAt"] = refreshed["expiresAt"]
+    session["refreshed_at"] = format_iso8601(utc_now())
+
+    write_json_atomic(state_path, state)
+    print("Session refreshed.")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    os.umask(0o077)
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+    data_dir = os.environ.get("DATA_DIR", "/data")
+    default_state_dir = Path(os.environ.get("HYTALE_AUTH_STATE_DIR", str(Path(data_dir) / "auth")))
+    state_path = default_state_dir / "state.json"
+
+    parser = argparse.ArgumentParser(prog="hytale-auth", description="Hytale OAuth/session helper for headless environments.")
+    parser.add_argument("--state-path", default=str(state_path), help="Path to auth state JSON (default: /data/auth/state.json)")
+
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    ensure_p = sub.add_parser("ensure", help="Ensure OAuth tokens, select profile, and create a game session.")
+    ensure_p.add_argument("--client-id", default=os.environ.get("HYTALE_AUTH_CLIENT_ID", DEFAULT_CLIENT_ID))
+    ensure_p.add_argument("--profile-uuid", default=None)
+    ensure_p.add_argument("--profile-username", default=None)
+    ensure_p.add_argument("--non-interactive", action="store_true", help="Fail instead of prompting device auth.")
+    ensure_p.add_argument("--force-new-session", action="store_true", help="Always create a new session token.")
+
+    sub.add_parser("status", help="Print auth state summary (tokens redacted).")
+    sub.add_parser("logout", help="Delete stored auth state.")
+    sub.add_parser("refresh-session", help="Refresh an existing session token in state.json.")
+
+    args = parser.parse_args(argv)
+    resolved_state_path = Path(args.state_path)
+
+    try:
+        if args.cmd == "status":
+            return cmd_status(resolved_state_path)
+        if args.cmd == "logout":
+            return cmd_logout(resolved_state_path)
+        if args.cmd == "refresh-session":
+            return cmd_refresh_session(resolved_state_path)
+        if args.cmd == "ensure":
+            return cmd_ensure(args, resolved_state_path)
+        raise FatalError(f"Unknown command: {args.cmd}")
+    except FatalError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
