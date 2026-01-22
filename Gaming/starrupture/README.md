@@ -8,8 +8,7 @@ StarRupture's Remote Control API.
 ## Quick start
 
 ```bash
-# From repo root:
-docker build -t starrupture:flux ./Gaming/starrupture
+docker build -t starrupture:flux .
 
 docker run --rm -it \
   -p 7777:7777/udp -p 7777:7777/tcp \
@@ -73,7 +72,8 @@ normally require the game client’s **Manage Server** flow to set passwords and
 start/load a session. This image can automate that by calling the server’s
 Remote Control API endpoints on `SERVER_PORT`.
 
-- `SR_AUTO_START` (default: `true`) — auto-starts by loading the save referenced by `SaveData.dat` (or the newest `*.sav`), otherwise starts a new session
+- `SR_AUTO_START` (default: `true`) — auto-starts by loading the save referenced by `SaveData.dat` (or the newest `*.sav`). If no save exists, the behavior depends on `SR_START_NEW_SESSION_IF_NO_SAVE` (and is disabled by default in `SYNC_SAVES_ONLY=true` mode).
+- `SR_START_NEW_SESSION_IF_NO_SAVE` (default: `false`) — when `SYNC_SAVES_ONLY=true`, controls whether the container should start a new session if no save exists yet. For marketplace/Flux failover safety, the default is to **not** auto-create a world on an empty `/saves` and stay in the initial **Manage Server** state instead.
 - `SR_ADMIN_PASSWORD_TOKEN` (default: empty) — **recommended**. Token string stored in `Password.json` under `"Password"` (684 base64 chars). This is what the StarRupture client expects when connecting via **Manage Server**.
 - `SR_PLAYER_PASSWORD_TOKEN` (default: empty) — **recommended**. Token string stored in `PlayerPassword.json` under `"Password"` (684 base64 chars). This is what the StarRupture client expects for the gameplay “join password”.
 - `SR_ADMIN_PASSWORD` (default: empty) — plain-string fallback. This can be used for headless automation, but StarRupture clients appear to use token-based passwords; **Manage Server may not accept it**.
@@ -82,9 +82,12 @@ Remote Control API endpoints on `SERVER_PORT`.
 - `SR_FORCE_PASSWORD_FILES` (default: `false`) — when `true`, forces copies of `Password.json` / `PlayerPassword.json` between `SAVED_DIR`, `SAVEGAMES_DIR` (when `SYNC_SAVES_ONLY=true`), and the install dir (helpful on Flux migrations)
 - `SR_SESSION_NAME` (default: empty) — session name used when starting a new session (defaults to `SERVER_NAME`)
 - `SR_CREDENTIALS_WAIT_SECS` (default: `60`) — when `SYNC_SAVES_ONLY=true` and saves exist, how long to wait for Syncthing to deliver `Password.json` before skipping auto-start (helps Flux failovers)
+- These waits only affect **auto-start automation**. If they time out, the server keeps running in its initial state and you can still open **Manage Server** later to initialize or recover.
 - `SR_PASSWORD_SYNC_INTERVAL_SECS` (default: `10`) — when `SYNC_SAVES_ONLY=true`, how often to sync token password files into the synced folder (helps Flux failovers)
+- `SR_AUTOSTART_WATCH_INTERVAL_SECS` (default: `10`) — background watcher interval for “late” Syncthing arrivals (token + existing saves)
+- `SR_AUTOSTART_WATCH_SECS` (default: `0`) — watcher timeout in seconds (`0` = keep watching)
 - `SR_REMOTE_WAIT_SECS` (default: `600`) — how long to wait for `/remote/info` before skipping auto-start
-- `SR_REMOTE_HOST` (default: `127.0.0.1`) — host used for Remote Control API calls (auto-detected; override only for debugging)
+- `SR_REMOTE_HOST` (default: empty) — host used for Remote Control API calls (auto-detected; override only for debugging)
 - `SR_REMOTE_PORT` (default: `SERVER_PORT`) — port used for Remote Control API calls (auto-detected)
 - `SR_REMOTE_PORTS` (default: `${SERVER_PORT},30010,30020`) — ports to probe for `/remote/info` (comma/space-separated)
 
@@ -134,3 +137,30 @@ directly.
   - `SAVED_DIR/SaveGames` → synced `SAVEGAMES_DIR` (defaults to `/saves`)
 - If you’re testing from the same network as the server, use the external IP and
   ensure your router supports hairpin NAT.
+
+## Reset / recovery
+
+### Reset admin / join passwords (keep the world)
+
+StarRupture stores passwords as **token strings** in `Password.json` (admin) and
+`PlayerPassword.json` (join). To reset them:
+
+1. Stop the container/app.
+2. Delete one or both files from the **synced** folder:
+   - Flux (`SYNC_SAVES_ONLY=true`): delete from `SAVEGAMES_DIR` (default: `/saves`)
+   - Docker (default): delete from `SAVED_DIR` (default: `/saves`)
+3. Start the container/app.
+4. Use StarRupture **Manage Server** to set new passwords and then **Load Game**
+   to start your existing save again.
+
+Tip: If you want the server to stay in the initial **Manage Server** state while
+you reset credentials, set `SR_AUTO_START=false` for that run and then set it
+back to `true` afterward.
+
+### Factory reset (wipe saves + passwords)
+
+1. Stop the container/app.
+2. Delete everything in the synced save folder (`/saves` on Flux, or `SAVED_DIR`
+   on Docker), including `SaveGames/`, `SaveData.dat`, `Password.json`, and
+   `PlayerPassword.json`.
+3. Start the container/app and initialize via **Manage Server**.
