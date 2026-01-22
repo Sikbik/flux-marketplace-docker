@@ -169,8 +169,13 @@ steamcmd_update() {
 
     local rc=0
     if [[ "${STEAMCMD_RUN_AS:-steam}" == "steam" ]] && [[ "$(id -u)" -eq 0 ]]; then
-      chown -R steam:steam "${STEAM_INSTALL_DIR}" || true
-      chown -R steam:steam "${steamcmd_home}" || true
+      # Fast path: avoid recursive chown of a 20GB install on every start.
+      # Only relax top-level perms so user "steam" can update, then we re-harden
+      # after SteamCMD completes.
+      chmod 755 "${STEAM_INSTALL_DIR}" >/dev/null 2>&1 || true
+      chown steam:steam "${STEAM_INSTALL_DIR}" >/dev/null 2>&1 || true
+      chmod 755 "${steamcmd_home}" >/dev/null 2>&1 || true
+      chown steam:steam "${steamcmd_home}" >/dev/null 2>&1 || true
       local cmd_string
       cmd_string="$(printf '%q ' "${cmd[@]}")"
       set +e
@@ -182,6 +187,24 @@ steamcmd_update() {
       "${cmd[@]}" 2>&1 | tee "${steamcmd_log}"
       rc="${PIPESTATUS[0]}"
       set -e
+    fi
+
+    if (( rc != 0 )) && [[ "${STEAMCMD_RUN_AS:-steam}" == "steam" ]] && [[ "$(id -u)" -eq 0 ]] && is_true "${STEAMCMD_RECURSIVE_CHOWN_ON_FAIL:-true}"; then
+      # If we hit permission issues due to leftover root-owned files, do the slow
+      # recursive fix once and retry.
+      if [[ -f "${steamcmd_log}" ]] && (grep -q "Missing file permissions" "${steamcmd_log}" 2>/dev/null || grep -q "Disk write failure" "${steamcmd_log}" 2>/dev/null); then
+        log "SteamCMD appears to have hit a permissions issue; running recursive chown once and retrying..."
+        chown -R steam:steam "${STEAM_INSTALL_DIR}" >/dev/null 2>&1 || true
+        chown -R steam:steam "${steamcmd_home}" >/dev/null 2>&1 || true
+        rm -f "${steamcmd_log}" >/dev/null 2>&1 || true
+
+        local cmd_string
+        cmd_string="$(printf '%q ' "${cmd[@]}")"
+        set +e
+        su - steam -c "HOME=\"${steamcmd_home}\" ${cmd_string}" 2>&1 | tee "${steamcmd_log}"
+        rc="${PIPESTATUS[0]}"
+        set -e
+      fi
     fi
 
     if (( rc != 0 )); then
@@ -198,6 +221,7 @@ steamcmd_update() {
         fi
       fi
 
+      log "SteamCMD exit code: ${rc}"
       log "Diagnostics:"
       log "User: $(id -u):$(id -g) ($(id -un 2>/dev/null || true))"
       log "HOME: ${HOME}"
@@ -219,6 +243,9 @@ steamcmd_update() {
       (mkdir -p "${STEAM_INSTALL_DIR}/.write-test" && echo ok > "${STEAM_INSTALL_DIR}/.write-test/test.txt" && rm -rf "${STEAM_INSTALL_DIR}/.write-test") >/dev/null 2>&1 \
         && log "install dir ok" \
         || log "install dir FAILED"
+
+      log "SteamCMD output (tail):"
+      tail -n 120 "${steamcmd_log}" 2>/dev/null || true
 
       log "Steam logs (tail):"
       tail -n 80 "${steamcmd_home}/Steam/logs/stderr.txt" 2>/dev/null || true
@@ -308,6 +335,7 @@ SAVED_DIR="${SAVED_DIR:-${SAVES_DIR:-/saves}}"
 SAVEGAMES_DIR="${SAVEGAMES_DIR:-}"
 
 SR_AUTO_START="${SR_AUTO_START:-true}"
+SR_AUTOSTART_DONE="false"
 SR_ADMIN_PASSWORD="${SR_ADMIN_PASSWORD:-}"
 SR_PLAYER_PASSWORD="${SR_PLAYER_PASSWORD:-}"
 SR_ADMIN_PASSWORD_TOKEN="${SR_ADMIN_PASSWORD_TOKEN:-}"
@@ -317,10 +345,13 @@ SR_SESSION_NAME="${SR_SESSION_NAME:-}"
 SR_CREDENTIALS_WAIT_SECS="${SR_CREDENTIALS_WAIT_SECS:-60}"
 SR_PASSWORD_SYNC_INTERVAL_SECS="${SR_PASSWORD_SYNC_INTERVAL_SECS:-10}"
 SR_REMOTE_WAIT_SECS="${SR_REMOTE_WAIT_SECS:-600}"
-SR_REMOTE_HOST="${SR_REMOTE_HOST:-127.0.0.1}"
+# Leave empty by default so wait_for_remote_api probes multiple loopback
+# options (IPv4/IPv6) and a container interface fallback.
+SR_REMOTE_HOST="${SR_REMOTE_HOST:-}"
 SR_REMOTE_PORT="${SR_REMOTE_PORT:-}"
 SR_REMOTE_PORTS="${SR_REMOTE_PORTS:-}"
 SR_WINE_PID="${SR_WINE_PID:-}"
+CONTAINER_START_EPOCH="${CONTAINER_START_EPOCH:-$(date +%s)}"
 
 # Prefer a rootfs install when there's enough space so Flux "volume browser"
 # cannot traverse the large Steam/Wine directories. If the node's Docker disk is
@@ -328,11 +359,10 @@ SR_WINE_PID="${SR_WINE_PID:-}"
 select_install_dir
 
 if [[ -z "${WINEPREFIX:-}" ]]; then
-  if [[ -d "/data/wine" || -d "/data/wine/prefix" ]]; then
-    WINEPREFIX="/data/wine/prefix"
-  else
-    WINEPREFIX="/opt/wine/prefix"
-  fi
+  # Default to a rootfs prefix for maximum compatibility/performance. Users can
+  # override WINEPREFIX if they specifically want it persisted on a mounted
+  # volume (e.g. /data).
+  WINEPREFIX="/opt/wine/prefix"
 fi
 
 case "${WINEPREFIX}" in
@@ -349,12 +379,7 @@ export WINEPREFIX WINEDLLOVERRIDES
 
 HARDEN_FLUX_VOLUME_BROWSER="${HARDEN_FLUX_VOLUME_BROWSER:-false}"
 
-if [[ -z "${STEAMCMD_RUN_AS:-}" ]]; then
-  STEAMCMD_RUN_AS="steam"
-  if is_true "${HARDEN_FLUX_VOLUME_BROWSER}" && [[ "$(id -u)" -eq 0 ]]; then
-    STEAMCMD_RUN_AS="root"
-  fi
-fi
+STEAMCMD_RUN_AS="${STEAMCMD_RUN_AS:-steam}"
 
 harden_path_for_flux_browser() {
   local path="$1"
@@ -383,7 +408,7 @@ harden_large_dirs_for_flux_browser() {
 hardening_notice_printed=false
 if is_true "${HARDEN_FLUX_VOLUME_BROWSER}" && [[ "${STEAMCMD_RUN_AS}" == "steam" ]]; then
   hardening_notice_printed=true
-  log "Warning: HARDEN_FLUX_VOLUME_BROWSER=true but STEAMCMD_RUN_AS=steam; SteamCMD may not be able to write to hardened paths."
+  log "Note: HARDEN_FLUX_VOLUME_BROWSER=true; SteamCMD will temporarily chown the install/cache to user 'steam' for updates, then re-harden after."
 fi
 
 detect_server_exe() {
@@ -529,25 +554,6 @@ setup_persistence() {
     server_exe_dir="$(dirname "${SERVER_EXE}")"
   fi
 
-  sync_password_file() {
-    local src="$1"
-    local dest="$2"
-
-    [[ -n "${src}" && -n "${dest}" ]] || return 0
-    [[ -s "${src}" ]] || return 0
-
-    mkdir -p "$(dirname "${dest}")" >/dev/null 2>&1 || true
-
-    # Flux volume browser operates on host paths and considers cross-mount
-    # absolute symlinks as dangling. Ensure password files are regular files.
-    if [[ -L "${dest}" ]]; then
-      rm -f "${dest}" >/dev/null 2>&1 || true
-    fi
-
-    cp -f "${src}" "${dest}" >/dev/null 2>&1 || true
-    chmod 644 "${dest}" >/dev/null 2>&1 || true
-  }
-
   restore_password_files_from_sync() {
     # When SYNC_SAVES_ONLY=true, password files live in the synced folder
     # (SAVEGAMES_DIR) but the server reads/writes them in SAVED_DIR. Copy them
@@ -556,10 +562,37 @@ setup_persistence() {
       local sync_path="${password_root}/${filename}"
       local saved_path="${SAVED_DIR}/${filename}"
 
-      if [[ -s "${sync_path}" ]]; then
-        if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${saved_path}" || "${sync_path}" -nt "${saved_path}" ]]; then
-          sync_password_file "${sync_path}" "${saved_path}"
-        fi
+      [[ -s "${sync_path}" ]] || continue
+
+      local sync_has_token="false"
+      if password_file_has_token "${sync_path}" 2>/dev/null; then
+        sync_has_token="true"
+      fi
+
+      local saved_has_token="false"
+      if password_file_has_token "${saved_path}" 2>/dev/null; then
+        saved_has_token="true"
+      fi
+
+      if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${saved_path}" ]]; then
+        copy_password_file_preserve "${sync_path}" "${saved_path}"
+        continue
+      fi
+
+      # Prefer token files over plaintext/invalid files, even when the token is
+      # older (Syncthing preserves mtimes; plaintext leftovers can be newer).
+      if [[ "${sync_has_token}" == "true" && "${saved_has_token}" != "true" ]]; then
+        copy_password_file_preserve "${sync_path}" "${saved_path}"
+        continue
+      fi
+
+      # Never overwrite a token with a non-token.
+      if [[ "${sync_has_token}" != "true" && "${saved_has_token}" == "true" ]]; then
+        continue
+      fi
+
+      if [[ "${sync_path}" -nt "${saved_path}" ]]; then
+        copy_password_file_preserve "${sync_path}" "${saved_path}"
       fi
     done
   }
@@ -570,9 +603,44 @@ setup_persistence() {
     for filename in Password.json PlayerPassword.json; do
       local saved_path="${SAVED_DIR}/${filename}"
       [[ -s "${saved_path}" ]] || continue
-      sync_password_file "${saved_path}" "${STEAM_INSTALL_DIR}/${filename}"
+
+      local saved_has_token="false"
+      if password_file_has_token "${saved_path}" 2>/dev/null; then
+        saved_has_token="true"
+      fi
+
+      local dest="${STEAM_INSTALL_DIR}/${filename}"
+      local dest_has_token="false"
+      if password_file_has_token "${dest}" 2>/dev/null; then
+        dest_has_token="true"
+      fi
+
+      if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${dest}" ]]; then
+        copy_password_file_preserve "${saved_path}" "${dest}"
+      elif [[ "${saved_has_token}" == "true" && "${dest_has_token}" != "true" ]]; then
+        copy_password_file_preserve "${saved_path}" "${dest}"
+      elif [[ "${saved_has_token}" != "true" && "${dest_has_token}" == "true" ]]; then
+        true
+      elif [[ "${saved_path}" -nt "${dest}" ]]; then
+        copy_password_file_preserve "${saved_path}" "${dest}"
+      fi
+
       if [[ -n "${server_exe_dir}" ]]; then
-        sync_password_file "${saved_path}" "${server_exe_dir}/${filename}"
+        dest="${server_exe_dir}/${filename}"
+        dest_has_token="false"
+        if password_file_has_token "${dest}" 2>/dev/null; then
+          dest_has_token="true"
+        fi
+
+        if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${dest}" ]]; then
+          copy_password_file_preserve "${saved_path}" "${dest}"
+        elif [[ "${saved_has_token}" == "true" && "${dest_has_token}" != "true" ]]; then
+          copy_password_file_preserve "${saved_path}" "${dest}"
+        elif [[ "${saved_has_token}" != "true" && "${dest_has_token}" == "true" ]]; then
+          true
+        elif [[ "${saved_path}" -nt "${dest}" ]]; then
+          copy_password_file_preserve "${saved_path}" "${dest}"
+        fi
       fi
     done
   }
@@ -661,6 +729,36 @@ tcp_listening_on_port() {
   return 1
 }
 
+list_listening_tcp_ports() {
+  local -a hex_ports=()
+  local hex=""
+
+  while IFS= read -r hex; do
+    [[ -n "${hex}" ]] || continue
+    hex_ports+=("${hex}")
+  done < <(awk 'NR>1 && $4=="0A"{split($2,a,":"); print a[2]}' /proc/net/tcp 2>/dev/null | sort -u)
+
+  while IFS= read -r hex; do
+    [[ -n "${hex}" ]] || continue
+    hex_ports+=("${hex}")
+  done < <(awk 'NR>1 && $4=="0A"{split($2,a,":"); print a[2]}' /proc/net/tcp6 2>/dev/null | sort -u)
+
+  local -A seen=()
+  for hex in "${hex_ports[@]}"; do
+    [[ -n "${hex}" ]] || continue
+    hex="${hex^^}"
+    if [[ -n "${seen[${hex}]:-}" ]]; then
+      continue
+    fi
+    seen["${hex}"]=1
+    local port_dec=""
+    port_dec="$(printf '%d' "0x${hex}" 2>/dev/null || true)"
+    [[ "${port_dec}" =~ ^[0-9]+$ ]] || continue
+    (( port_dec > 0 && port_dec < 65536 )) || continue
+    printf '%s\n' "${port_dec}"
+  done | sort -n
+}
+
 udp_bound_on_port() {
   local port="$1"
   local port_hex
@@ -671,6 +769,36 @@ udp_bound_on_port() {
   awk -v port_hex="${port_hex}" 'NR>1{split($2,a,":"); if (toupper(a[2])==port_hex){found=1}} END{exit found?0:1}' /proc/net/udp6 2>/dev/null \
     && return 0
   return 1
+}
+
+list_bound_udp_ports() {
+  local -a hex_ports=()
+  local hex=""
+
+  while IFS= read -r hex; do
+    [[ -n "${hex}" ]] || continue
+    hex_ports+=("${hex}")
+  done < <(awk 'NR>1{split($2,a,":"); print a[2]}' /proc/net/udp 2>/dev/null | sort -u)
+
+  while IFS= read -r hex; do
+    [[ -n "${hex}" ]] || continue
+    hex_ports+=("${hex}")
+  done < <(awk 'NR>1{split($2,a,":"); print a[2]}' /proc/net/udp6 2>/dev/null | sort -u)
+
+  local -A seen=()
+  for hex in "${hex_ports[@]}"; do
+    [[ -n "${hex}" ]] || continue
+    hex="${hex^^}"
+    if [[ -n "${seen[${hex}]:-}" ]]; then
+      continue
+    fi
+    seen["${hex}"]=1
+    local port_dec=""
+    port_dec="$(printf '%d' "0x${hex}" 2>/dev/null || true)"
+    [[ "${port_dec}" =~ ^[0-9]+$ ]] || continue
+    (( port_dec > 0 && port_dec < 65536 )) || continue
+    printf '%s\n' "${port_dec}"
+  done | sort -n
 }
 
 tail_saved_logs() {
@@ -734,38 +862,72 @@ wait_for_remote_api() {
   fi
 
   local -a hosts
-  hosts=("${SR_REMOTE_HOST}" "127.0.0.1" "localhost")
+  if [[ -n "${SR_REMOTE_HOST:-}" ]]; then
+    hosts=("${SR_REMOTE_HOST}")
+  else
+    hosts=("127.0.0.1" "localhost")
+  fi
 
-  local host_ips=""
-  host_ips="$(hostname -I 2>/dev/null || true)"
+  # Add a single non-loopback IPv4 as a fallback in case the server binds only
+  # to the container interface (rare).
   local hip=""
-  for hip in ${host_ips}; do
+  for hip in $(hostname -I 2>/dev/null || true); do
     [[ "${hip}" == *:* ]] && continue
     [[ "${hip}" == 127.* ]] && continue
     hosts+=("${hip}")
+    break
   done
 
-  local etc_hosts_ips=""
-  etc_hosts_ips="$(awk '{print $1}' /etc/hosts 2>/dev/null | grep -E '^[0-9]+\\.' || true)"
-  for hip in ${etc_hosts_ips}; do
-    [[ "${hip}" == 127.* ]] && continue
-    hosts+=("${hip}")
+  declare -A seen_hosts=()
+  local -a uniq_hosts=()
+  local h=""
+  for h in "${hosts[@]}"; do
+    [[ -n "${h}" ]] || continue
+    if [[ -n "${seen_hosts[${h}]:-}" ]]; then
+      continue
+    fi
+    seen_hosts["${h}"]=1
+    uniq_hosts+=("${h}")
   done
+  hosts=("${uniq_hosts[@]}")
 
-  local i=0
-  while (( i < SR_REMOTE_WAIT_SECS )); do
+  local start_ts="${SECONDS}"
+  local last_log_ts="${SECONDS}"
+  local can_check_tcp="false"
+  if [[ -r /proc/net/tcp || -r /proc/net/tcp6 ]]; then
+    can_check_tcp="true"
+  fi
+  while (( SECONDS - start_ts < SR_REMOTE_WAIT_SECS )); do
     if [[ -n "${SR_WINE_PID}" ]] && ! kill -0 "${SR_WINE_PID}" 2>/dev/null; then
       log "Server process exited while waiting for Remote Control API."
       return 1
     fi
 
-    local h=""
+    local elapsed=$((SECONDS - start_ts))
+    if (( elapsed > 0 )) && (( elapsed % 30 == 0 )) && (( SECONDS != last_log_ts )); then
+      last_log_ts="${SECONDS}"
+      log "Waiting for Remote Control API... ${elapsed}s/${SR_REMOTE_WAIT_SECS}s"
+    fi
+
     for h in "${hosts[@]}"; do
       [[ -n "${h}" ]] || continue
       local port=""
       for port in "${ports[@]}"; do
+        # Prefer to only probe ports that are actually listening (to reduce
+        # curl spam). If /proc/net is unavailable in this environment, or to
+        # handle rare edge cases where /proc doesn't reflect the listener yet,
+        # fall back to probing periodically.
+        if [[ "${can_check_tcp}" == "true" ]] && ! tcp_listening_on_port "${port}"; then
+          # Still probe occasionally so we don't get stuck if /proc/net is
+          # restricted or lagging behind.
+          if (( elapsed % 10 != 0 )); then
+            continue
+          fi
+        fi
         local url="http://${h}:${port}/remote/info"
-        if curl -fsS --connect-timeout 1 --max-time 2 "${url}" >/dev/null 2>&1; then
+        # Don't use -f: treat any HTTP response as "API is up" (404/500 still
+        # means the HTTP server is reachable).
+        if curl -sS --connect-timeout 1 --max-time 2 "${url}" >/dev/null 2>&1; then
           SR_REMOTE_HOST="${h}"
           SR_REMOTE_PORT="${port}"
           return 0
@@ -773,8 +935,31 @@ wait_for_remote_api() {
       done
     done
 
+    # Some builds bind the Remote Control API to an unexpected ephemeral port.
+    # If we see any TCP listeners, probe them too (bounded) so failovers can
+    # still auto-start.
+    if [[ "${can_check_tcp}" == "true" ]] && (( elapsed % 10 == 0 )); then
+      local dyn_port=""
+      local dyn_ports=""
+      dyn_ports="$(list_listening_tcp_ports 2>/dev/null | head -n 40 | tr '\n' ' ' || true)"
+      for dyn_port in ${dyn_ports}; do
+        [[ "${dyn_port}" =~ ^[0-9]+$ ]] || continue
+        if [[ -n "${seen_ports[${dyn_port}]:-}" ]]; then
+          continue
+        fi
+        for h in "${hosts[@]}"; do
+          [[ -n "${h}" ]] || continue
+          local url="http://${h}:${dyn_port}/remote/info"
+          if curl -sS --connect-timeout 1 --max-time 2 "${url}" >/dev/null 2>&1; then
+            SR_REMOTE_HOST="${h}"
+            SR_REMOTE_PORT="${dyn_port}"
+            return 0
+          fi
+        done
+      done
+    fi
+
     sleep 1
-    i=$((i + 1))
   done
 
   log "Remote Control API not reachable after ${SR_REMOTE_WAIT_SECS}s; listener check:"
@@ -786,6 +971,8 @@ wait_for_remote_api() {
       log "TCP LISTEN: ${port} (no)"
     fi
   done
+  log "TCP LISTEN ports (all):"
+  list_listening_tcp_ports 2>/dev/null | head -n 40 | paste -sd' ' - 2>/dev/null || true
   # For sanity, confirm the game ports are at least bound for UDP.
   if udp_bound_on_port "${SERVER_PORT}"; then
     log "UDP BOUND: ${SERVER_PORT} (yes)"
@@ -797,6 +984,8 @@ wait_for_remote_api() {
   else
     log "UDP BOUND: ${QUERY_PORT} (no)"
   fi
+  log "UDP BOUND ports (all):"
+  list_bound_udp_ports 2>/dev/null | head -n 40 | paste -sd' ' - 2>/dev/null || true
 
   timeout_diagnostics || true
   return 1
@@ -992,7 +1181,14 @@ sync_password_tokens_once() {
     local dest=""
     for dest in "${dests[@]}"; do
       [[ "${dest}" == "${best}" ]] && continue
-      if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${dest}" || "${best}" -nt "${dest}" ]]; then
+      local dest_has_token="false"
+      if password_file_has_token "${dest}" 2>/dev/null; then
+        dest_has_token="true"
+      fi
+
+      # If a destination has a plaintext/invalid file, overwrite it with the
+      # token even if the plaintext is newer (common after manual edits).
+      if is_true "${SR_FORCE_PASSWORD_FILES}" || [[ ! -s "${dest}" || "${dest_has_token}" != "true" || "${best}" -nt "${dest}" ]]; then
         copy_password_file_preserve "${best}" "${dest}"
       fi
     done
@@ -1026,7 +1222,7 @@ persist_password_files_to_sync() {
 
 auto_start_session() {
   if ! is_true "${SR_AUTO_START}"; then
-    return
+    return 0
   fi
 
   if [[ -n "${SR_ADMIN_PASSWORD_TOKEN}" ]] && ! looks_like_password_token "${SR_ADMIN_PASSWORD_TOKEN}"; then
@@ -1042,15 +1238,19 @@ auto_start_session() {
 
   if ! wait_for_remote_api; then
     log "Timed out waiting for Remote Control API (skipping auto-start)."
-    return
+    return 1
   fi
 
   local settings_obj=""
   settings_obj="$(discover_settings_component 2>/dev/null || true)"
   if [[ -z "${settings_obj}" ]]; then
     log "Could not find DedicatedServerSettingsComp object (skipping auto-start)."
-    return
+    return 1
   fi
+
+  # Token files might appear on Flux shortly after start (Syncthing). Sync once
+  # before we read local copies.
+  sync_password_tokens_once || true
 
   local saved_password_value=""
   saved_password_value="$(read_password_value_from_json "${SAVED_DIR}/Password.json" 2>/dev/null || true)"
@@ -1081,35 +1281,77 @@ auto_start_session() {
 
   if [[ -z "${admin_secret}" ]]; then
     # On Flux failovers, Syncthing may populate the synced folder shortly after
-    # the container starts. If we already have save data but no password token
-    # yet, wait briefly for Password.json to appear before giving up.
+    # the container starts. Wait briefly for Password.json (token) and existing
+    # save data to arrive so we can auto-load seamlessly after migrations.
     if is_true "${SYNC_SAVES_ONLY}" && [[ -n "${SAVEGAMES_DIR:-}" ]]; then
-      if find "${SAVEGAMES_DIR}" -maxdepth 2 -type f \( -name '*.sav' -o -name 'SaveData.dat' \) 2>/dev/null | head -n 1 | grep -q .; then
-        local wait_secs="${SR_CREDENTIALS_WAIT_SECS:-60}"
-        log "No admin token yet; waiting up to ${wait_secs}s for synced Password.json..."
-        local start now
-        start="$(date +%s)"
-        while true; do
-          local candidate=""
-          candidate="$(read_password_value_from_json "${SAVEGAMES_DIR}/Password.json" 2>/dev/null || true)"
-          if [[ -n "${candidate}" ]] && looks_like_password_token "${candidate}"; then
-            admin_secret="${candidate}"
-            break
-          fi
-          now="$(date +%s)"
-          if (( now - start >= wait_secs )); then
-            break
-          fi
-          sleep 2
-        done
+      local wait_secs="${SR_CREDENTIALS_WAIT_SECS:-60}"
+      if [[ ! "${wait_secs}" =~ ^[0-9]+$ ]]; then
+        wait_secs=60
       fi
-    fi
+      if (( wait_secs > 0 )); then
+        log "No admin token yet; waiting up to ${wait_secs}s for Syncthing to deliver Password.json + saves..."
+      fi
 
-    if [[ -z "${admin_secret}" ]]; then
+      local start now
+      start="$(date +%s)"
+      local pending_admin_secret=""
+      local have_existing_save="false"
+
+      while true; do
+        if [[ -n "${SR_WINE_PID}" ]] && ! kill -0 "${SR_WINE_PID}" 2>/dev/null; then
+          log "Server process exited while waiting for credentials."
+          return 1
+        fi
+
+        local candidate=""
+        candidate="$(read_password_value_from_json "${SAVEGAMES_DIR}/Password.json" 2>/dev/null || true)"
+        if [[ -n "${candidate}" ]] && looks_like_password_token "${candidate}"; then
+          pending_admin_secret="${candidate}"
+          sync_password_tokens_once || true
+        fi
+
+        have_existing_save="false"
+        local save_path=""
+        save_path="$(find "${SAVEGAMES_DIR}" -maxdepth 2 -type f \( -name '*.sav' -o -name 'SaveData.dat' \) -print -quit 2>/dev/null || true)"
+        if [[ -n "${save_path}" ]]; then
+          local mtime=""
+          mtime="$(stat -c '%Y' "${save_path}" 2>/dev/null || true)"
+          if [[ "${mtime}" =~ ^[0-9]+$ ]] && (( mtime <= CONTAINER_START_EPOCH )); then
+            have_existing_save="true"
+          fi
+        fi
+
+        if [[ -n "${pending_admin_secret}" && "${have_existing_save}" == "true" ]]; then
+          admin_secret="${pending_admin_secret}"
+          break
+        fi
+
+        now="$(date +%s)"
+        if (( wait_secs == 0 )); then
+          sleep 2
+          continue
+        fi
+        if (( now - start >= wait_secs )); then
+          break
+        fi
+        sleep 2
+      done
+
+      if [[ -z "${admin_secret}" ]]; then
+        if [[ -n "${pending_admin_secret}" ]]; then
+          log "Admin token arrived but no existing saves detected yet; skipping auto-start."
+        else
+          log "No admin token yet; skipping auto-start (use in-game Manage Server once to initialize)."
+        fi
+        return 1
+      fi
+    else
       log "SR_AUTO_START=true but no admin password/token is available; skipping auto-start (use in-game Manage Server once to initialize)."
-      return
+      return 1
     fi
-  else
+  fi
+
+  local token=""
   local check_rv=""
   check_rv="$(remote_call_return "${settings_obj}" "CheckPassword" "InPassword=${admin_secret}" 2>/dev/null || true)"
   case "${check_rv}" in
@@ -1131,12 +1373,14 @@ auto_start_session() {
           ;;
         *)
           log "CheckPassword still failed after reset attempt (skipping auto-start)."
-          return
+          return 1
           ;;
       esac
       ;;
   esac
   token="${check_rv#*:}"
+  if [[ -z "${token}" ]]; then
+    token="${admin_secret}"
   fi
 
   local player_secret=""
@@ -1195,9 +1439,20 @@ auto_start_session() {
   if [[ -n "${session_to_load}" && -n "${save_to_load}" ]]; then
     log "Auto-start: loading ${session_to_load}/${save_to_load}"
     local load_rv=""
-    load_rv="$(remote_call_return "${settings_obj}" "LoadSessionSave" "InSessionName=${session_to_load}" "InSaveGameName=${save_to_load}" "InToken=${token}" 2>/dev/null || true)"
+    if load_rv="$(remote_call_return "${settings_obj}" "LoadSessionSave" "InSessionName=${session_to_load}" "InSaveGameName=${save_to_load}" "InToken=${token}" 2>/dev/null)"; then
+      SR_AUTOSTART_DONE="true"
+      log "LoadSessionSave returned: ${load_rv}"
+      return 0
+    else
+      load_rv=""
+    fi
     log "LoadSessionSave returned: ${load_rv}"
-    return
+    return 1
+  fi
+
+  if is_true "${SYNC_SAVES_ONLY}" && ! is_true "${SR_START_NEW_SESSION_IF_NO_SAVE:-false}"; then
+    log "Auto-start: no save found; skipping new session (use Manage Server or set SR_START_NEW_SESSION_IF_NO_SAVE=true)."
+    return 1
   fi
 
   local new_session="${SR_SESSION_NAME:-${SERVER_NAME}}"
@@ -1207,8 +1462,85 @@ auto_start_session() {
 
   log "Auto-start: no save found; starting new session ${new_session}"
   local new_rv=""
-  new_rv="$(remote_call_return "${settings_obj}" "StartNewSession" "NewSessionName=${new_session}" "InToken=${token}" 2>/dev/null || true)"
+  if new_rv="$(remote_call_return "${settings_obj}" "StartNewSession" "NewSessionName=${new_session}" "InToken=${token}" 2>/dev/null)"; then
+    SR_AUTOSTART_DONE="true"
+    log "StartNewSession returned: ${new_rv}"
+    return 0
+  else
+    new_rv=""
+  fi
   log "StartNewSession returned: ${new_rv}"
+  return 1
+}
+
+start_autostart_watcher() {
+  if ! is_true "${SR_AUTO_START}"; then
+    return
+  fi
+  if [[ "${SR_AUTOSTART_DONE}" == "true" ]]; then
+    return
+  fi
+  if ! is_true "${SYNC_SAVES_ONLY}"; then
+    return
+  fi
+  if [[ -z "${SAVEGAMES_DIR:-}" ]]; then
+    return
+  fi
+
+  local interval="${SR_AUTOSTART_WATCH_INTERVAL_SECS:-10}"
+  if [[ ! "${interval}" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
+    return
+  fi
+
+  local timeout="${SR_AUTOSTART_WATCH_SECS:-0}"
+  if [[ ! "${timeout}" =~ ^[0-9]+$ ]]; then
+    timeout=0
+  fi
+
+  (
+    local start_ts="${SECONDS}"
+    local announced="false"
+    while true; do
+      if [[ "${SR_AUTOSTART_DONE}" == "true" ]]; then
+        exit 0
+      fi
+      if [[ -n "${SR_WINE_PID}" ]] && ! kill -0 "${SR_WINE_PID}" 2>/dev/null; then
+        exit 0
+      fi
+
+      local candidate=""
+      candidate="$(read_password_value_from_json "${SAVEGAMES_DIR}/Password.json" 2>/dev/null || true)"
+      if [[ -n "${candidate}" ]] && looks_like_password_token "${candidate}"; then
+        local save_path=""
+        save_path="$(find "${SAVEGAMES_DIR}" -maxdepth 2 -type f \( -name '*.sav' -o -name 'SaveData.dat' \) -print -quit 2>/dev/null || true)"
+        if [[ -n "${save_path}" ]]; then
+          local mtime=""
+          mtime="$(stat -c '%Y' "${save_path}" 2>/dev/null || true)"
+          if [[ "${mtime}" =~ ^[0-9]+$ ]] && (( mtime <= CONTAINER_START_EPOCH )); then
+            if [[ "${announced}" != "true" ]]; then
+              announced="true"
+              log "Synced credentials+saves detected; attempting auto-start..."
+            fi
+            if auto_start_session; then
+              exit 0
+            fi
+          fi
+
+          # If saves are being created during this container run, treat it as a
+          # first-time bootstrap and don't try to auto-start.
+          if [[ "${mtime}" =~ ^[0-9]+$ ]] && (( mtime > CONTAINER_START_EPOCH )); then
+            log "Detected fresh bootstrap during this run; not auto-starting."
+            exit 0
+          fi
+        fi
+      fi
+
+      if (( timeout > 0 && SECONDS - start_ts >= timeout )); then
+        exit 0
+      fi
+      sleep "${interval}"
+    done
+  ) &
 }
 
 server_present=false
@@ -1308,6 +1640,7 @@ if is_true "${USE_XVFB:-true}"; then
   trap 'kill -TERM ${wine_pid} >/dev/null 2>&1 || true; kill -TERM ${xvfb_pid} >/dev/null 2>&1 || true' SIGTERM SIGINT
 
   auto_start_session || true
+  start_autostart_watcher
 
   wait "${wine_pid}"
   exit $?
@@ -1321,5 +1654,6 @@ else
   SR_WINE_PID="${wine_pid}"
   trap 'kill -TERM ${wine_pid} >/dev/null 2>&1 || true' SIGTERM SIGINT
   auto_start_session || true
+  start_autostart_watcher
   wait "${wine_pid}"
 fi

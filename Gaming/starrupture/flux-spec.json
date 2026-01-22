@@ -1,7 +1,7 @@
 {
   "version": 8,
-  "name": "starrupture",
-  "description": "StarRupture dedicated server (Wine + SteamCMD, Flux-ready)",
+  "name": "starrupture-flux",
+  "description": "StarRupture dedicated server (Wine + SteamCMD, Flux-ready).\n\nBootstrap flow (recommended for marketplace):\n- First boot: connect via StarRupture -> Manage Server, set Admin + Join passwords, create/load a world.\n- After that: password tokens + saves persist in g:/saves (Syncthing primary/standby), so Flux failovers/restarts can auto-load the existing save without repeating Manage Server setup.\n\nNotes:\n- This spec uses two components: `data` provides a larger non-synced /data volume; `server` mounts it via `0:/data` and uses `g:/saves` for the synced SaveGames folder.\n- `SR_CREDENTIALS_WAIT_SECS` only affects automated failover loading (waiting briefly for Syncthing to deliver credentials+saves). It does not prevent you from opening Manage Server later.\n- On an empty /saves, the container intentionally stays in the initial Manage Server state (it does not auto-create a new world).",
   "owner": "YOUR_ZELID_HERE",
   "compose": [
     {
@@ -25,20 +25,29 @@
     },
     {
       "name": "server",
-      "description": "StarRupture server (g:/ SaveGames; local /data install)",
+      "description": "StarRupture server. Uses g:/saves for synced SaveGames + password tokens; uses /data for local Steam/Wine cache/install.",
       "repotag": "littlestache/starrupture-flux:latest",
-      "ports": [7777, 27015],
-      "domains": ["", ""],
+      "ports": [
+        7777,
+        27015
+      ],
+      "domains": [
+        "",
+        ""
+      ],
       "environmentParameters": [
         "STEAM_INSTALL_DIR=/data/server",
         "SYNC_SAVES_ONLY=true",
         "SERVER_NAME=RunOnFlux",
         "HARDEN_FLUX_VOLUME_BROWSER=true",
-        "SR_ADMIN_PASSWORD_TOKEN=",
-        "SR_PLAYER_PASSWORD_TOKEN="
+        "SR_CREDENTIALS_WAIT_SECS=300",
+        "SR_REMOTE_WAIT_SECS=1800"
       ],
       "commands": [],
-      "containerPorts": [7777, 27015],
+      "containerPorts": [
+        7777,
+        27015
+      ],
       "containerData": "g:/saves|0:/data",
       "cpu": 4,
       "ram": 16384,
