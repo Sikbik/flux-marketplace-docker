@@ -5,6 +5,10 @@ log() {
   printf '[sotf] %s\n' "$*"
 }
 
+log_err() {
+  printf '[sotf] %s\n' "$*" >&2
+}
+
 is_true() {
   case "${1,,}" in
     1|true|yes|y|on) return 0 ;;
@@ -104,11 +108,14 @@ read_json_source() {
   local file_path="${2:-}"
   local raw_json="${3:-}"
   local kv_pairs="${4:-}"
-  local fallback="${5:-{}}"
+  local fallback="${5:-}"
+  if [[ -z "${fallback}" ]]; then
+    fallback="{}"
+  fi
 
   if [[ -n "${b64}" ]]; then
     if ! printf '%s' "${b64}" | base64 -d 2>/dev/null; then
-      log "ERROR: Failed to decode base64 JSON value."
+      log_err "ERROR: Failed to decode base64 JSON value."
       printf '%s' "${fallback}"
     fi
     return 0
@@ -116,7 +123,7 @@ read_json_source() {
 
   if [[ -n "${file_path}" ]]; then
     if [[ ! -f "${file_path}" ]]; then
-      log "ERROR: JSON file not found: ${file_path}"
+      log_err "ERROR: JSON file not found: ${file_path}"
       printf '%s' "${fallback}"
       return 0
     fi
@@ -279,63 +286,125 @@ steamcmd_update() {
   fi
   mkdir -p "${steamcmd_home}" >/dev/null 2>&1 || true
 
-  local -a cmd
-  cmd=("${STEAMCMD}" +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1)
-
-  if [[ -n "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}" ]]; then
-    cmd+=(+@sSteamCmdForcePlatformType "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}")
+  if [[ "$(id -u)" -eq 0 ]]; then
+    # SteamCMD uses $HOME heavily (Steam/config, Steam/appcache). Make sure it is
+    # writable by the steam user before the first run to avoid partial state.
+    chown -R steam:steam "${steamcmd_home}" >/dev/null 2>&1 || true
+    if is_true "${HARDEN_FLUX_VOLUME_BROWSER:-false}"; then
+      chmod 700 "${steamcmd_home}" >/dev/null 2>&1 || true
+    else
+      chmod 755 "${steamcmd_home}" >/dev/null 2>&1 || true
+    fi
   fi
 
-  cmd+=(+force_install_dir "${STEAM_INSTALL_DIR}")
+  local steamcmd_log="${STEAMCMD_LOG_FILE:-${steamcmd_home}/steamcmd.log}"
+  local steamcmd_error_kind=""
 
-  if [[ "${STEAM_LOGIN:-anonymous}" == "anonymous" ]]; then
-    cmd+=(+login anonymous)
-  else
-    cmd+=(+login "${STEAM_LOGIN}" "${STEAM_PASSWORD:-}" "${STEAM_GUARD:-}")
-  fi
+  run_steamcmd() {
+    steamcmd_error_kind=""
 
-  cmd+=(+app_update "${STEAM_APP_ID}")
+    local -a cmd
+    cmd=("${STEAMCMD}" +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1)
 
-  if [[ -n "${STEAM_BRANCH:-}" ]]; then
-    cmd+=(-beta "${STEAM_BRANCH}")
-  fi
-  if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
-    cmd+=(-betapassword "${STEAM_BRANCH_PASSWORD}")
-  fi
-  if is_true "${STEAMCMD_VALIDATE:-true}"; then
-    cmd+=(validate)
-  fi
+    if [[ -n "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}" ]]; then
+      cmd+=(+@sSteamCmdForcePlatformType "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}")
+    fi
 
-  if [[ -n "${STEAMCMD_EXTRA_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    cmd+=(${STEAMCMD_EXTRA_ARGS})
-  fi
+    cmd+=(+force_install_dir "${STEAM_INSTALL_DIR}")
 
-  cmd+=(+quit)
+    if [[ "${STEAM_LOGIN:-anonymous}" == "anonymous" ]]; then
+      cmd+=(+login anonymous)
+    else
+      cmd+=(+login "${STEAM_LOGIN}" "${STEAM_PASSWORD:-}" "${STEAM_GUARD:-}")
+    fi
+
+    cmd+=(+app_update "${STEAM_APP_ID}")
+
+    if [[ -n "${STEAM_BRANCH:-}" ]]; then
+      cmd+=(-beta "${STEAM_BRANCH}")
+    fi
+    if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
+      cmd+=(-betapassword "${STEAM_BRANCH_PASSWORD}")
+    fi
+    if is_true "${STEAMCMD_VALIDATE:-true}"; then
+      cmd+=(validate)
+    fi
+
+    if [[ -n "${STEAMCMD_EXTRA_ARGS:-}" ]]; then
+      # shellcheck disable=SC2206
+      cmd+=(${STEAMCMD_EXTRA_ARGS})
+    fi
+
+    cmd+=(+quit)
+
+    rm -f "${steamcmd_log}" >/dev/null 2>&1 || true
+
+    local rc=0
+    set +e
+    run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}" 2>&1 | tee "${steamcmd_log}"
+    rc="${PIPESTATUS[0]}"
+    set -e
+
+    if [[ -f "${steamcmd_log}" ]]; then
+      if grep -q "Missing configuration" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="missing_configuration"
+      elif grep -q "Missing file permissions" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="missing_file_permissions"
+      elif grep -q "Disk write failure" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="disk_write_failure"
+      fi
+    fi
+
+    return "${rc}"
+  }
 
   log "Checking for server updates via SteamCMD..."
 
-  local rc=0
-  set +e
-  run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}"
-  rc=$?
-  set -e
-
+  run_steamcmd
+  local rc=$?
   if (( rc == 0 )); then
     return 0
   fi
 
-  if [[ "$(id -u)" -eq 0 ]]; then
-    log "SteamCMD failed (rc=${rc}); retrying once after recursive chown..."
-    chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" /home/steam 2>/dev/null || true
-  else
-    log "SteamCMD failed (rc=${rc}); retrying once..."
+  if [[ "${steamcmd_error_kind}" == "missing_file_permissions" ]] && [[ "$(id -u)" -eq 0 ]]; then
+    log "SteamCMD returned Missing file permissions; running recursive chown and retrying once..."
+    chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" /home/steam >/dev/null 2>&1 || true
+    run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
   fi
 
-  set +e
-  run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}"
-  rc=$?
-  set -e
+  if [[ "${steamcmd_error_kind}" == "missing_configuration" ]] && is_true "${STEAMCMD_RESET_ON_MISSING_CONFIG:-true}"; then
+    log "SteamCMD returned Missing configuration; wiping ${steamcmd_home}/Steam/config and retrying once..."
+    rm -rf "${steamcmd_home}/Steam/config" "${steamcmd_home}/Steam/appcache" >/dev/null 2>&1 || true
+    run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+  fi
+
+  if is_true "${STEAMCMD_VALIDATE:-true}" && is_true "${STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL:-true}"; then
+    log "SteamCMD failed with validate enabled; retrying once with STEAMCMD_VALIDATE=false..."
+    STEAMCMD_VALIDATE=false run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+  fi
+
+  log "SteamCMD failed (rc=${rc}). See ${steamcmd_log} and ${steamcmd_home}/Steam/logs for details."
+
+  if [[ -f "${steamcmd_log}" ]]; then
+    log "SteamCMD output (tail):"
+    tail -n 120 "${steamcmd_log}" 2>/dev/null || true
+  fi
+
+  log "Steam logs (tail):"
+  tail -n 80 "${steamcmd_home}/Steam/logs/stderr.txt" 2>/dev/null || true
+  tail -n 80 "${steamcmd_home}/Steam/logs/bootstrap_log.txt" 2>/dev/null || true
 
   return "${rc}"
 }
@@ -360,7 +429,7 @@ if is_true "${USE_XVFB:-true}"; then
     # shellcheck disable=SC2206
     xvfb_cmd+=(${XVFB_ARGS})
   else
-    xvfb_cmd+=(-screen 0 1024x768x16 -nolisten tcp -ac)
+    xvfb_cmd+=(-screen 0 1024x768x24 -nolisten tcp -ac)
   fi
 
   "${xvfb_cmd[@]}" &
@@ -456,22 +525,41 @@ if [[ ! -f "${SERVER_EXE}" ]]; then
 fi
 
 log "Launching server..."
-log "Args: -batchmode -nographics -userdatapath ${SOTF_USERDATA_PATH} ${SOTF_SERVER_ARGS:-}"
+server_dir="$(dirname "${SERVER_EXE}")"
+
+SOTF_STEAM_APP_ID="${SOTF_STEAM_APP_ID:-1326470}"
+SOTF_STEAM_GAME_ID="${SOTF_STEAM_GAME_ID:-${SOTF_STEAM_APP_ID}}"
+if is_true "${SOTF_WRITE_STEAM_APPID_TXT:-true}"; then
+  log "Ensuring steam_appid.txt exists (${SOTF_STEAM_APP_ID})..."
+  printf '%s' "${SOTF_STEAM_APP_ID}" > "${server_dir}/steam_appid.txt"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown steam:steam "${server_dir}/steam_appid.txt" >/dev/null 2>&1 || true
+  fi
+fi
+
+server_args=()
+server_args+=(-userdatapath "${SOTF_USERDATA_PATH}")
+
+if is_true "${SOTF_VERBOSE_LOGGING:-false}"; then
+  server_args+=(-verboseLogging)
+fi
+
+log "Args: ${server_args[*]} ${SOTF_SERVER_ARGS:-}"
 
 WINE_BIN="wine64"
 if ! command -v "${WINE_BIN}" >/dev/null 2>&1; then
   WINE_BIN="wine"
 fi
 
-cd "${STEAM_INSTALL_DIR}"
+cd "${server_dir}"
 exec gosu steam env \
   DISPLAY="${DISPLAY}" \
   WINEPREFIX="${WINEPREFIX}" \
   WINEARCH="${WINEARCH}" \
   WINEDEBUG="${WINEDEBUG:-}" \
   WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-}" \
+  SteamAppId="${SOTF_STEAM_APP_ID}" \
+  SteamGameId="${SOTF_STEAM_GAME_ID}" \
   "${WINE_BIN}" "${SERVER_EXE}" \
-    -batchmode \
-    -nographics \
-    -userdatapath "${SOTF_USERDATA_PATH}" \
+    "${server_args[@]}" \
     ${SOTF_SERVER_ARGS:-}

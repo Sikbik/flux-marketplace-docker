@@ -23,6 +23,16 @@ Default ports (UDP):
 - `/data` → Steam install + Wine prefix (large; safe to keep non-synced on Flux)
 - `/config` → `dedicatedserver.cfg`, `ownerswhitelist.txt`, and save data (recommended to sync on Flux)
 
+## Recommended host specs (quick guidance)
+
+Real-world resource use varies heavily by world age, AI activity, and player count. As a starting point for a public server:
+
+- CPU: **6 vCPU** recommended
+- RAM: **16 GB** recommended
+- Disk: **40 GB** recommended for the server + growth (mods/logs/backups)
+
+The included `flux-spec.json` matches this baseline (6 CPU / 16 GB RAM, plus a 40 GB local `/data` cache volume).
+
 ## Quick start (Docker Compose)
 
 ```bash
@@ -70,6 +80,9 @@ Important: `g:/` is a **sync mechanism**, not a clustered filesystem. Running mu
 - `STEAMCMD_FORCE_PLATFORM_TYPE` (default: `windows`) — required for Windows-only servers
 - `STEAM_BRANCH`, `STEAM_BRANCH_PASSWORD` (optional) — beta branches
 - `STEAMCMD_HOME` (default: `/data/steam`) — where SteamCMD stores state/caches
+- `STEAMCMD_LOG_FILE` (default: `/data/steam/steamcmd.log`) — captures the last SteamCMD output (useful for troubleshooting)
+- `STEAMCMD_RESET_ON_MISSING_CONFIG` (default: `true`) — wipes Steam config/appcache and retries once if SteamCMD reports “Missing configuration”
+- `STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL` (default: `true`) — when `STEAMCMD_VALIDATE=true`, retries once with validate disabled if SteamCMD fails
 - `DISK_PREFLIGHT` (default: `true`) — fail early if free disk is too low
 - `MIN_FREE_GB` (default: `30`) — required free space at `STEAM_INSTALL_DIR`
 
@@ -145,10 +158,21 @@ Apply behavior:
 
 - `USE_XVFB` (default: `true`)
 - `XVFB_DISPLAY` (default: `99`)
-- `XVFB_ARGS` (default: `-screen 0 1024x768x16 -nolisten tcp -ac`)
+- `XVFB_ARGS` (default: `-screen 0 1024x768x24 -nolisten tcp -ac`)
 - `WINEPREFIX` (default: `/data/wine/prefix`)
 - `WINEARCH` (default: `win64`)
 - `WINEDEBUG` (default: `-all`)
+
+### Dedicated server runtime behavior
+
+The official `StartSOTFDedicated.bat` writes `steam_appid.txt` with the base game appid (`1326470`).
+
+This image mirrors that behavior:
+
+- `SOTF_WRITE_STEAM_APPID_TXT` (default: `true`)
+- `SOTF_STEAM_APP_ID` (default: `1326470`) — used for `steam_appid.txt` (not the SteamCMD install appid)
+- `SOTF_STEAM_GAME_ID` (default: `1326470`) — exported as `SteamGameId`
+- `SOTF_VERBOSE_LOGGING` (default: `false`) — adds `-verboseLogging` to the server args
 
 ### Permissions
 
@@ -204,3 +228,5 @@ docker run --rm -it \
 ```
 
 When the server finishes starting, it will appear in-game under **Multiplayer → Dedicated** (and should accept direct connect to `IP:8766`).
+
+Tip: A successful boot prints `ServerStart Success` and binds UDP `8766`, `27016`, and `9700`.

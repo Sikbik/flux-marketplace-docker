@@ -19,6 +19,9 @@ ENV STEAM_APP_ID=2465200 \
     STEAMCMD_FORCE_PLATFORM_TYPE=windows \
     STEAMCMD_EXTRA_ARGS= \
     STEAMCMD_HOME=/data/steam \
+    STEAMCMD_LOG_FILE=/data/steam/steamcmd.log \
+    STEAMCMD_RESET_ON_MISSING_CONFIG=true \
+    STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL=true \
     STEAMCMD_VALIDATE=true \
     AUTO_UPDATE=true \
     DISK_PREFLIGHT=true \
@@ -60,27 +63,45 @@ ENV WINEPREFIX=/data/wine/prefix \
     WINEDEBUG=-all \
     USE_XVFB=true \
     XVFB_DISPLAY=99 \
-    XVFB_ARGS="-screen 0 1024x768x16 -nolisten tcp -ac" \
+    XVFB_ARGS="-screen 0 1024x768x24 -nolisten tcp -ac" \
     HOME=/home/steam \
     USER=steam
+
+# Dedicated server runtime behavior
+# The official StartSOTFDedicated.bat writes steam_appid.txt with the base game appid (1326470).
+ENV SOTF_WRITE_STEAM_APPID_TXT=true \
+    SOTF_STEAM_APP_ID=1326470 \
+    SOTF_STEAM_GAME_ID=1326470 \
+    SOTF_VERBOSE_LOGGING=false
 
 RUN dpkg --add-architecture i386 \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
      ca-certificates \
      gosu \
+     gnupg \
      procps \
+     wget \
      winbind \
-     wine \
-     wine64 \
-     wine32 \
      xvfb \
+  && mkdir -p /etc/apt/keyrings \
+  && wget -qO /tmp/winehq.key https://dl.winehq.org/wine-builds/winehq.key \
+  && gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key /tmp/winehq.key \
+  && rm -f /tmp/winehq.key \
+  && wget -qO /etc/apt/sources.list.d/winehq.sources https://dl.winehq.org/wine-builds/debian/dists/trixie/winehq-trixie.sources \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+     winehq-staging \
+  && apt-get purge -y --auto-remove \
+     gnupg \
+     wget \
   && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /data /config /home/steam/sotf \
   && chown -R steam:steam /data /config /home/steam
 
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
+COPY --chmod=755 healthcheck.sh /healthcheck.sh
 
 WORKDIR /home/steam/sotf
 
@@ -89,6 +110,6 @@ WORKDIR /home/steam/sotf
 EXPOSE 8766/udp 27016/udp 9700/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20m --retries=3 \
-  CMD pgrep -f 'SonsOfTheForestDS.exe' >/dev/null || exit 1
+  CMD /healthcheck.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
