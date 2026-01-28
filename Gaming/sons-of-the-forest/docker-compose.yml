@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  sons-of-the-forest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sons-of-the-forest-server
+    restart: unless-stopped
+
+    environment:
+      - AUTO_UPDATE=true
+      - STEAMCMD_VALIDATE=true
+      - MANAGE_CONFIG=true
+
+      # Config (dedicatedserver.cfg)
+      - SOTF_IP_ADDRESS=0.0.0.0
+      - SOTF_GAME_PORT=8766
+      - SOTF_QUERY_PORT=27016
+      - SOTF_BLOB_SYNC_PORT=9700
+      - SOTF_SERVER_NAME=flux
+      - SOTF_MAX_PLAYERS=8
+      - SOTF_PASSWORD=
+      - SOTF_LAN_ONLY=false
+      - SOTF_SAVE_SLOT=1
+      - SOTF_SAVE_MODE=Continue
+      - SOTF_GAME_MODE=Normal
+      - SOTF_SAVE_INTERVAL=600
+      - SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST=true
+
+      # Optional: set one or more SteamID64s for admins (comma/space-separated)
+      # - SOTF_OWNERS=76561198000000000,76561198000000001
+
+    ports:
+      - "8766:8766/udp"
+      - "27016:27016/udp"
+      - "9700:9700/udp"
+
+    volumes:
+      - ./sotf-data:/data
+      - ./sotf-config:/config
+

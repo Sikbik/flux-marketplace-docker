@@ -1,0 +1,54 @@
+{
+  "version": 8,
+  "name": "sonsoftheforest",
+  "description": "Sons of the Forest Dedicated Server (SteamCMD + Wine, Flux-friendly).\n\nThis spec uses two components:\n- `data` provides a larger local (non-synced) /data volume for Steam install + Wine prefix.\n- `server` runs the game server, mounts `0:/data` and uses `g:/config` for synced config+saves.\n",
+  "owner": "YOUR_ZELID_HERE",
+  "instances": 3,
+  "staticip": false,
+  "enterprise": "",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam/Wine (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 40,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "Sons of the Forest server (g:/config for saves; local /data install)",
+      "repotag": "littlestache/sons-of-the-forest-flux:latest",
+      "ports": [8766, 27016, 9700],
+      "containerPorts": [8766, 27016, 9700],
+      "domains": ["", "", ""],
+      "environmentParameters": [
+        "STEAM_INSTALL_DIR=/data/server",
+        "SOTF_USERDATA_PATH=/config",
+        "SOTF_SERVER_NAME=RunOnFlux",
+        "SOTF_PASSWORD=",
+        "SOTF_MAX_PLAYERS=8",
+        "SOTF_LAN_ONLY=false",
+        "SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST=true"
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 4,
+      "ram": 12000,
+      "hdd": 2,
+      "repoauth": ""
+    }
+  ]
+}
+
