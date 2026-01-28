@@ -8,35 +8,63 @@ services:
     container_name: sons-of-the-forest-server
     restart: unless-stopped
 
+    # Copy `.env.example` to `.env` and edit to customize.
     environment:
-      - AUTO_UPDATE=true
-      - STEAMCMD_VALIDATE=true
-      - MANAGE_CONFIG=true
+      AUTO_UPDATE: ${AUTO_UPDATE:-true}
+      STEAMCMD_VALIDATE: ${STEAMCMD_VALIDATE:-true}
+      STEAMCMD_FORCE_PLATFORM_TYPE: ${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}
+      STEAM_INSTALL_DIR: ${STEAM_INSTALL_DIR:-/data/server}
+      STEAMCMD_HOME: ${STEAMCMD_HOME:-/data/steam}
+      DISK_PREFLIGHT: ${DISK_PREFLIGHT:-true}
+      MIN_FREE_GB: ${MIN_FREE_GB:-30}
+      HARDEN_FLUX_VOLUME_BROWSER: ${HARDEN_FLUX_VOLUME_BROWSER:-false}
+
+      MANAGE_CONFIG: ${MANAGE_CONFIG:-true}
+      SOTF_CONFIG_APPLY_MODE: ${SOTF_CONFIG_APPLY_MODE:-always}
+      SOTF_OWNERS_APPLY_MODE: ${SOTF_OWNERS_APPLY_MODE:-always}
 
       # Config (dedicatedserver.cfg)
-      - SOTF_IP_ADDRESS=0.0.0.0
-      - SOTF_GAME_PORT=8766
-      - SOTF_QUERY_PORT=27016
-      - SOTF_BLOB_SYNC_PORT=9700
-      - SOTF_SERVER_NAME=flux
-      - SOTF_MAX_PLAYERS=8
-      - SOTF_PASSWORD=
-      - SOTF_LAN_ONLY=false
-      - SOTF_SAVE_SLOT=1
-      - SOTF_SAVE_MODE=Continue
-      - SOTF_GAME_MODE=Normal
-      - SOTF_SAVE_INTERVAL=600
-      - SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST=true
+      SOTF_IP_ADDRESS: ${SOTF_IP_ADDRESS:-0.0.0.0}
+      SOTF_GAME_PORT: ${SOTF_GAME_PORT:-8766}
+      SOTF_QUERY_PORT: ${SOTF_QUERY_PORT:-27016}
+      SOTF_BLOB_SYNC_PORT: ${SOTF_BLOB_SYNC_PORT:-9700}
+      SOTF_SERVER_NAME: ${SOTF_SERVER_NAME:-flux}
+      SOTF_MAX_PLAYERS: ${SOTF_MAX_PLAYERS:-8}
+      SOTF_PASSWORD: ${SOTF_PASSWORD:-}
+      SOTF_LAN_ONLY: ${SOTF_LAN_ONLY:-false}
+      SOTF_SAVE_SLOT: ${SOTF_SAVE_SLOT:-1}
+      SOTF_SAVE_MODE: ${SOTF_SAVE_MODE:-Continue}
+      SOTF_GAME_MODE: ${SOTF_GAME_MODE:-Normal}
+      SOTF_SAVE_INTERVAL: ${SOTF_SAVE_INTERVAL:-600}
+      SOTF_IDLE_DAY_CYCLE_SPEED: ${SOTF_IDLE_DAY_CYCLE_SPEED:-0.0}
+      SOTF_IDLE_TARGET_FRAMERATE: ${SOTF_IDLE_TARGET_FRAMERATE:-5}
+      SOTF_ACTIVE_TARGET_FRAMERATE: ${SOTF_ACTIVE_TARGET_FRAMERATE:-60}
+      SOTF_LOG_FILES_ENABLED: ${SOTF_LOG_FILES_ENABLED:-true}
+      SOTF_TIMESTAMP_LOG_FILENAMES: ${SOTF_TIMESTAMP_LOG_FILENAMES:-true}
+      SOTF_TIMESTAMP_LOG_ENTRIES: ${SOTF_TIMESTAMP_LOG_ENTRIES:-true}
+      SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST: ${SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST:-true}
 
-      # Optional: set one or more SteamID64s for admins (comma/space-separated)
-      # - SOTF_OWNERS=76561198000000000,76561198000000001
+      # Optional: set SteamID64 admins (comma/space-separated)
+      SOTF_OWNERS: ${SOTF_OWNERS:-}
+      SOTF_ADMINS: ${SOTF_ADMINS:-}
+
+      # Optional: key/value player/gameplay settings
+      SOTF_GAME_SETTINGS: ${SOTF_GAME_SETTINGS:-}
+      SOTF_CUSTOM_GAME_MODE_SETTINGS: ${SOTF_CUSTOM_GAME_MODE_SETTINGS:-}
+
+      # Wine / Xvfb
+      USE_XVFB: ${USE_XVFB:-true}
+      XVFB_DISPLAY: ${XVFB_DISPLAY:-99}
+      XVFB_ARGS: ${XVFB_ARGS:-}
+      WINEPREFIX: ${WINEPREFIX:-/data/wine/prefix}
+      WINEARCH: ${WINEARCH:-win64}
+      WINEDEBUG: ${WINEDEBUG:--all}
 
     ports:
-      - "8766:8766/udp"
-      - "27016:27016/udp"
-      - "9700:9700/udp"
+      - "${SOTF_GAME_PORT:-8766}:${SOTF_GAME_PORT:-8766}/udp"
+      - "${SOTF_QUERY_PORT:-27016}:${SOTF_QUERY_PORT:-27016}/udp"
+      - "${SOTF_BLOB_SYNC_PORT:-9700}:${SOTF_BLOB_SYNC_PORT:-9700}/udp"
 
     volumes:
       - ./sotf-data:/data
       - ./sotf-config:/config
-

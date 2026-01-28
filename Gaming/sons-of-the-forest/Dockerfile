@@ -14,8 +14,16 @@ ENV STEAM_APP_ID=2465200 \
     STEAM_LOGIN=anonymous \
     STEAM_PASSWORD= \
     STEAM_GUARD= \
+    STEAM_BRANCH= \
+    STEAM_BRANCH_PASSWORD= \
+    STEAMCMD_FORCE_PLATFORM_TYPE=windows \
+    STEAMCMD_EXTRA_ARGS= \
+    STEAMCMD_HOME=/data/steam \
     STEAMCMD_VALIDATE=true \
-    AUTO_UPDATE=true
+    AUTO_UPDATE=true \
+    DISK_PREFLIGHT=true \
+    MIN_FREE_GB=30 \
+    HARDEN_FLUX_VOLUME_BROWSER=false
 
 # Flux-friendly persistence paths
 # - /data: local cache (Steam install + Wine prefix) (recommended on Flux via a non-synced volume)
@@ -24,6 +32,8 @@ ENV SOTF_USERDATA_PATH=/config
 
 # Config generation (set MANAGE_CONFIG=false to manage dedicatedserver.cfg yourself)
 ENV MANAGE_CONFIG=true \
+    SOTF_CONFIG_APPLY_MODE=always \
+    SOTF_OWNERS_APPLY_MODE=always \
     SOTF_IP_ADDRESS=0.0.0.0 \
     SOTF_GAME_PORT=8766 \
     SOTF_QUERY_PORT=27016 \
@@ -36,13 +46,21 @@ ENV MANAGE_CONFIG=true \
     SOTF_SAVE_MODE=Continue \
     SOTF_GAME_MODE=Normal \
     SOTF_SAVE_INTERVAL=600 \
+    SOTF_IDLE_DAY_CYCLE_SPEED=0.0 \
+    SOTF_IDLE_TARGET_FRAMERATE=5 \
+    SOTF_ACTIVE_TARGET_FRAMERATE=60 \
+    SOTF_LOG_FILES_ENABLED=true \
+    SOTF_TIMESTAMP_LOG_FILENAMES=true \
+    SOTF_TIMESTAMP_LOG_ENTRIES=true \
     SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST=true
 
 # Wine
 ENV WINEPREFIX=/data/wine/prefix \
     WINEARCH=win64 \
     WINEDEBUG=-all \
-    DISPLAY=:99 \
+    USE_XVFB=true \
+    XVFB_DISPLAY=99 \
+    XVFB_ARGS="-screen 0 1024x768x16 -nolisten tcp -ac" \
     HOME=/home/steam \
     USER=steam
 
@@ -70,5 +88,7 @@ WORKDIR /home/steam/sotf
 # map UDP at minimum.
 EXPOSE 8766/udp 27016/udp 9700/udp
 
-ENTRYPOINT ["/entrypoint.sh"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20m --retries=3 \
+  CMD pgrep -f 'SonsOfTheForestDS.exe' >/dev/null || exit 1
 
+ENTRYPOINT ["/entrypoint.sh"]
