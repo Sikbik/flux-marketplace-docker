@@ -24,19 +24,28 @@ run_as_steam() {
   gosu steam "$@"
 }
 
-mkdir -p "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")"
-chown steam:steam "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
-chmod 755 "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
-
+id_changed="false"
 if [[ -n "${PUID:-}" ]] && [[ "${PUID}" != "1000" ]]; then
   echo "Updating UID to ${PUID}..."
-  usermod -u "${PUID}" steam
+  if usermod -u "${PUID}" steam; then
+    id_changed="true"
+  fi
 fi
 
 if [[ -n "${PGID:-}" ]] && [[ "${PGID}" != "1000" ]]; then
   echo "Updating GID to ${PGID}..."
-  groupmod -g "${PGID}" steam
+  if groupmod -g "${PGID}" steam; then
+    id_changed="true"
+  fi
 fi
+
+mkdir -p "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")"
+if [[ "${id_changed}" == "true" ]]; then
+  chown -R steam:steam "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
+else
+  chown steam:steam "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
+fi
+chmod 755 "${STEAM_INSTALL_DIR}" "${SOTF_USERDATA_PATH}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
 
 mkdir -p "${WINEPREFIX}"
 chown -R steam:steam "${WINEPREFIX}" >/dev/null 2>&1 || true
@@ -199,4 +208,3 @@ exec gosu steam env \
     -nographics \
     -userdatapath "${SOTF_USERDATA_PATH}" \
     ${SOTF_SERVER_ARGS:-}
-
