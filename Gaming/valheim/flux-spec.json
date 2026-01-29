@@ -1,0 +1,77 @@
+{
+  "version": 8,
+  "name": "valheim-flux",
+  "description": "Valheim Dedicated Server (official Linux via SteamCMD). Uses local /data for install/cache and synced g:/config for worlds/saves. Ports: 2456-2458/udp.",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 20,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "Valheim server (g:/config for saves; local /data install)",
+      "repotag": "littlestache/valheim-flux:latest",
+      "ports": [
+        2456,
+        2457,
+        2458
+      ],
+      "containerPorts": [
+        2456,
+        2457,
+        2458
+      ],
+      "domains": [
+        "",
+        "",
+        ""
+      ],
+      "environmentParameters": [
+        "AUTO_UPDATE=true",
+        "STEAMCMD_VALIDATE=false",
+        "DISK_PREFLIGHT=true",
+        "MIN_FREE_GB=5",
+        "HARDEN_FLUX_VOLUME_BROWSER=true",
+        "VALHEIM_SERVER_NAME=RunOnFlux - Valheim",
+        "VALHEIM_WORLD_NAME=RunOnFlux",
+        "VALHEIM_PASSWORD=test1234",
+        "VALHEIM_PUBLIC=true",
+        "VALHEIM_PORT=2456",
+        "VALHEIM_SAVEDIR=/config",
+        "VALHEIM_CROSSPLAY=false",
+        "VALHEIM_STEAM_APP_ID=892970",
+        "VALHEIM_WRITE_STEAM_APPID_TXT=true",
+        "VALHEIM_LOG_FILE="
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 2,
+      "ram": 4000,
+      "hdd": 10,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}

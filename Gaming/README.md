@@ -6,3 +6,4 @@
 - `sons-of-the-forest/` → Sons of the Forest dedicated server (SteamCMD + Wine, Flux-friendly)
 - `abiotic-factor/` → Abiotic Factor dedicated server (SteamCMD + Wine, Flux-friendly)
 - `terraria/` → Terraria dedicated server (headless, Flux-friendly)
+- `valheim/` → Valheim dedicated server (SteamCMD, headless, Flux-friendly)

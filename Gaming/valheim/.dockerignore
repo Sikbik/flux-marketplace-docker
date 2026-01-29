@@ -1,0 +1,6 @@
+.env
+.env.*
+docker-compose.yml
+valheim-data/
+valheim-config/
+*.log

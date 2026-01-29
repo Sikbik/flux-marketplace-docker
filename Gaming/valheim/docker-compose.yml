@@ -1,0 +1,17 @@
+services:
+  valheim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: valheim-flux:local
+    container_name: valheim-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "2456:2456/udp"
+      - "2457:2457/udp"
+      - "2458:2458/udp"
+    volumes:
+      - ./valheim-data:/data
+      - ./valheim-config:/config
