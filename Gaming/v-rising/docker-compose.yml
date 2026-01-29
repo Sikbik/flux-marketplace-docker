@@ -1,0 +1,18 @@
+services:
+  v-rising:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: v-rising-flux:local
+    container_name: v-rising-server
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "9876:9876/udp"
+      - "9877:9877/udp"
+      - "25575:25575/tcp"
+    volumes:
+      - ./vrising-data:/data
+      - ./vrising-config:/config
+

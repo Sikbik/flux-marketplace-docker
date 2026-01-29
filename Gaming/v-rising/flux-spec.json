@@ -1,0 +1,81 @@
+{
+  "version": 8,
+  "name": "v-rising-flux",
+  "description": "V Rising Dedicated Server (SteamCMD + Wine). Uses local /data for install/cache and synced g:/config for persistent save-data. Ports: 9876-9877 (UDP).",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 25,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "V Rising server (g:/config for saves; local /data install)",
+      "repotag": "littlestache/v-rising-flux:latest",
+      "ports": [
+        9876,
+        9877
+      ],
+      "containerPorts": [
+        9876,
+        9877
+      ],
+      "domains": [
+        "",
+        ""
+      ],
+      "environmentParameters": [
+        "AUTO_UPDATE=true",
+        "STEAMCMD_VALIDATE=true",
+        "DISK_PREFLIGHT=true",
+        "MIN_FREE_GB=15",
+        "HARDEN_FLUX_VOLUME_BROWSER=true",
+        "VR_PERSISTENT_DATA_DIR=/config/save-data",
+        "MANAGE_CONFIG=true",
+        "VR_CONFIG_APPLY_MODE=always",
+        "VR_LISTS_APPLY_MODE=always",
+        "VR_SERVER_NAME=RunOnFlux - V Rising",
+        "VR_SAVE_NAME=RunOnFlux",
+        "VR_PASSWORD=test1234",
+        "VR_GAME_PORT=9876",
+        "VR_QUERY_PORT=9877",
+        "VR_MAX_PLAYERS=40",
+        "VR_SERVER_FPS=30",
+        "VR_SECURE=true",
+        "VR_LIST_ON_STEAM=true",
+        "VR_LIST_ON_EOS=true",
+        "VR_AUTOSAVE_INTERVAL=600",
+        "VR_AUTOSAVE_COUNT=50"
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 4,
+      "ram": 6000,
+      "hdd": 10,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}
+
