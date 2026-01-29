@@ -5,7 +5,7 @@ Marketplace-ready, Flux-friendly Docker image for the **Sons of the Forest** ded
 - Installs/updates via **SteamCMD** (Steam appid `2465200`)
 - Runs the **Windows-only** server on **linux/amd64** using **Wine + Xvfb**
 - Flux-friendly persistence split:
-  - `/data` → large **local** cache (Steam install + Wine prefix) (recommended: Flux non-synced volume)
+  - `/data` → large **local** cache (Steam install + SteamCMD cache) (recommended: Flux non-synced volume)
   - `/config` → **config + saves** (recommended: Flux synced `g:/config`)
 
 This image does **not** ship any proprietary server files; everything is pulled via SteamCMD at runtime.
@@ -20,7 +20,7 @@ Default ports (UDP):
 
 ## Volumes
 
-- `/data` → Steam install + Wine prefix (large; safe to keep non-synced on Flux)
+- `/data` → Steam install + SteamCMD cache (large; safe to keep non-synced on Flux)
 - `/config` → `dedicatedserver.cfg`, `ownerswhitelist.txt`, and save data (recommended to sync on Flux)
 
 ## Recommended host specs (quick guidance)
@@ -159,7 +159,7 @@ Apply behavior:
 - `USE_XVFB` (default: `true`)
 - `XVFB_DISPLAY` (default: `99`)
 - `XVFB_ARGS` (default: `-screen 0 1024x768x24 -nolisten tcp -ac`)
-- `WINEPREFIX` (default: `/data/wine/prefix`)
+- `WINEPREFIX` (default: `/opt/wine/prefix`) — default keeps the huge Wine prefix off Flux volumes (helps avoid volume explorer slowdowns/crashes). Set `WINEPREFIX=/data/wine/prefix` if you want it persisted.
 - `WINEARCH` (default: `win64`)
 - `WINEDEBUG` (default: `-all`)
 

@@ -200,7 +200,7 @@ SOTF_USERDATA_PATH="${SOTF_USERDATA_PATH:-/config}"
 CONFIG_FILE="${SOTF_CONFIG_FILE:-${SOTF_USERDATA_PATH}/dedicatedserver.cfg}"
 OWNERS_FILE="${SOTF_OWNERS_FILE:-${SOTF_USERDATA_PATH}/ownerswhitelist.txt}"
 
-WINEPREFIX="${WINEPREFIX:-/data/wine/prefix}"
+WINEPREFIX="${WINEPREFIX:-/opt/wine/prefix}"
 WINEARCH="${WINEARCH:-win64}"
 WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
 export WINEPREFIX WINEARCH WINEDLLOVERRIDES
@@ -261,11 +261,37 @@ if [[ "$(id -u)" -eq 0 ]]; then
 fi
 
 if is_true "${HARDEN_FLUX_VOLUME_BROWSER:-false}"; then
-  chmod 700 "${STEAM_INSTALL_DIR}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
+  chmod 700 "${STEAM_INSTALL_DIR}" >/dev/null 2>&1 || true
+  if [[ "$(dirname "${WINEPREFIX}")" == /data/* ]]; then
+    chmod 700 "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
+  fi
 else
-  chmod 755 "${STEAM_INSTALL_DIR}" "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
+  chmod 755 "${STEAM_INSTALL_DIR}" >/dev/null 2>&1 || true
+  chmod 755 "$(dirname "${WINEPREFIX}")" >/dev/null 2>&1 || true
 fi
 chmod 755 "${SOTF_USERDATA_PATH}" >/dev/null 2>&1 || true
+
+maybe_lockdown_unused_data_wine_dir() {
+  # If we are using an ephemeral Wine prefix (default: /opt/wine/prefix) we don't
+  # need the legacy /data/wine tree. Flux's volume explorer can struggle on huge
+  # Wine prefixes, so deny access to that directory to avoid heavy scans.
+  if ! is_true "${HARDEN_FLUX_VOLUME_BROWSER:-false}"; then
+    return 0
+  fi
+  [[ "$(id -u)" -eq 0 ]] || return 0
+
+  case "${WINEPREFIX}" in
+    /data/wine/*) return 0 ;;
+  esac
+
+  if [[ -d "/data/wine" ]]; then
+    log "HARDEN_FLUX_VOLUME_BROWSER=true; locking down unused /data/wine to reduce Flux volume explorer load."
+    chown root:root "/data/wine" >/dev/null 2>&1 || true
+    chmod 700 "/data/wine" >/dev/null 2>&1 || true
+  fi
+}
+
+maybe_lockdown_unused_data_wine_dir
 
 mkdir -p "${WINEPREFIX}"
 if [[ "$(id -u)" -eq 0 ]]; then

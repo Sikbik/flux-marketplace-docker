@@ -58,7 +58,12 @@ ENV MANAGE_CONFIG=true \
     SOTF_SKIP_NETWORK_ACCESSIBILITY_TEST=true
 
 # Wine
-ENV WINEPREFIX=/data/wine/prefix \
+#
+# NOTE: The Wine prefix contains a very large number of small files. On Flux,
+# the volume explorer can struggle when browsing large directory trees on app
+# volumes. We therefore default the Wine prefix to the container rootfs (/opt)
+# instead of the Flux volume (/data). You can override WINEPREFIX to persist it.
+ENV WINEPREFIX=/opt/wine/prefix \
     WINEARCH=win64 \
     WINEDEBUG=-all \
     USE_XVFB=true \
