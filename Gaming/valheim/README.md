@@ -63,6 +63,7 @@ To join in-game:
 - `VALHEIM_PASSWORD` (**required**, 5+ chars)
 - `VALHEIM_PUBLIC` (default: `true`) — show in community list (`true`/`false`)
 - `VALHEIM_PORT` (default: `2456`) — base port (uses base+1, base+2 too)
+- `VALHEIM_SAVE_INTERVAL` (optional) — world autosave interval in seconds (Valheim default is `1800`; recommended `600` for 10 minutes)
 
 ### Persistence
 

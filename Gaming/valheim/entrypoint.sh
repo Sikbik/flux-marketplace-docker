@@ -249,6 +249,7 @@ fi
 
 log_file="${VALHEIM_LOG_FILE-}"
 extra_args="${VALHEIM_EXTRA_ARGS:-}"
+save_interval="${VALHEIM_SAVE_INTERVAL:-}"
 
 if is_true "${VALHEIM_WRITE_STEAM_APPID_TXT:-true}"; then
   if [[ "${VALHEIM_STEAM_APP_ID}" =~ ^[0-9]+$ ]]; then
@@ -271,6 +272,13 @@ cmd=(
   -batchmode
   "${crossplay_args[@]}"
 )
+if [[ -n "${save_interval}" ]]; then
+  if [[ "${save_interval}" =~ ^[0-9]+$ ]] && (( save_interval >= 60 )); then
+    cmd+=(-saveinterval "${save_interval}")
+  else
+    log_err "Warning: VALHEIM_SAVE_INTERVAL must be an integer >= 60 seconds; ignoring: ${save_interval}"
+  fi
+fi
 if [[ -n "${log_file}" ]]; then
   cmd+=(-logFile "${log_file}")
 fi

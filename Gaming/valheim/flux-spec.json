@@ -53,6 +53,7 @@
         "VALHEIM_PASSWORD=test1234",
         "VALHEIM_PUBLIC=true",
         "VALHEIM_PORT=2456",
+        "VALHEIM_SAVE_INTERVAL=600",
         "VALHEIM_SAVEDIR=/config",
         "VALHEIM_CROSSPLAY=false",
         "VALHEIM_STEAM_APP_ID=892970",
