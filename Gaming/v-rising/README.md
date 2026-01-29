@@ -75,6 +75,19 @@ To join in-game:
 - `VR_AUTOSAVE_COUNT` (default: `50`)
 - `VR_GAME_SETTINGS_PRESET` (optional) — if set, writes `GameSettingsPreset` in host settings
 
+### Popular game settings (env → `ServerGameSettings.json`)
+
+These are some of the most commonly tweaked server settings. When `MANAGE_CONFIG=true`, this container will set these keys in `ServerGameSettings.json`:
+
+- `VR_TELEPORT_BOUND_ITEMS` → `TeleportBoundItems` (`true`/`false`)
+- `VR_BAT_BOUND_ITEMS` → `BatBoundItems` (`true`/`false`)
+- `VR_MATERIAL_YIELD_MODIFIER_GLOBAL` → `MaterialYieldModifier_Global` (number)
+- `VR_INVENTORY_STACKS_MODIFIER` → `InventoryStacksModifier` (number)
+- `VR_CRAFT_RATE_MODIFIER` → `CraftRateModifier` (number)
+- `VR_REFINEMENT_RATE_MODIFIER` → `RefinementRateModifier` (number)
+- `VR_CASTLE_BLOOD_ESSENCE_DRAIN_MODIFIER` → `CastleBloodEssenceDrainModifier` (number)
+- `VR_CASTLE_DECAY_RATE_MODIFIER` → `CastleDecayRateModifier` (number)
+
 ### RCON (optional)
 
 - `VR_RCON_ENABLED` (default: `false`)
@@ -133,4 +146,3 @@ Cleanup:
 docker compose down -v
 rm -rf vrising-config vrising-data
 ```
-

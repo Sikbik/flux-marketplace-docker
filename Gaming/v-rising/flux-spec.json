@@ -40,27 +40,26 @@
         ""
       ],
       "environmentParameters": [
-        "AUTO_UPDATE=true",
-        "STEAMCMD_VALIDATE=true",
-        "DISK_PREFLIGHT=true",
-        "MIN_FREE_GB=15",
-        "HARDEN_FLUX_VOLUME_BROWSER=true",
-        "VR_PERSISTENT_DATA_DIR=/config/save-data",
-        "MANAGE_CONFIG=true",
-        "VR_CONFIG_APPLY_MODE=always",
-        "VR_LISTS_APPLY_MODE=always",
         "VR_SERVER_NAME=RunOnFlux - V Rising",
         "VR_SAVE_NAME=RunOnFlux",
-        "VR_PASSWORD=test1234",
-        "VR_GAME_PORT=9876",
-        "VR_QUERY_PORT=9877",
+        "VR_PASSWORD=CHANGE_ME",
         "VR_MAX_PLAYERS=40",
+        "VR_MAX_ADMINS=4",
         "VR_SERVER_FPS=30",
         "VR_SECURE=true",
         "VR_LIST_ON_STEAM=true",
         "VR_LIST_ON_EOS=true",
         "VR_AUTOSAVE_INTERVAL=600",
-        "VR_AUTOSAVE_COUNT=50"
+        "VR_AUTOSAVE_COUNT=50",
+        "VR_GAME_SETTINGS_PRESET=",
+        "VR_TELEPORT_BOUND_ITEMS=true",
+        "VR_BAT_BOUND_ITEMS=true",
+        "VR_MATERIAL_YIELD_MODIFIER_GLOBAL=1.0",
+        "VR_INVENTORY_STACKS_MODIFIER=1.0",
+        "VR_CRAFT_RATE_MODIFIER=1.0",
+        "VR_REFINEMENT_RATE_MODIFIER=1.0",
+        "VR_CASTLE_BLOOD_ESSENCE_DRAIN_MODIFIER=1.0",
+        "VR_CASTLE_DECAY_RATE_MODIFIER=1.0"
       ],
       "commands": [],
       "containerData": "g:/config|0:/data",
@@ -78,4 +77,3 @@
   "staticip": false,
   "enterprise": ""
 }
-

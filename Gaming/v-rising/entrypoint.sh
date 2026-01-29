@@ -92,6 +92,59 @@ split_list_to_lines() {
   tr ', ' '\n\n' | awk 'NF {print $0}'
 }
 
+apply_game_settings_overrides() {
+  python3 - "${1}" <<'PY'
+import json, os, sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8-sig") as f:
+    data = json.load(f)
+
+def parse_bool(name):
+    v = os.environ.get(name)
+    if v is None:
+        return None
+    v = str(v).strip().lower()
+    if v == "":
+        return None
+    return v in ("1", "true", "yes", "y", "on")
+
+def parse_float(name):
+    v = os.environ.get(name)
+    if v is None:
+        return None
+    v = str(v).strip()
+    if v == "":
+        return None
+    try:
+        return float(v)
+    except Exception:
+        print(f"[vrising] Warning: {name} must be a number; ignoring: {v}", file=sys.stderr)
+        return None
+
+def set_if(name, key, value):
+    if value is None:
+        return
+    data[key] = value
+
+set_if("VR_TELEPORT_BOUND_ITEMS", "TeleportBoundItems", parse_bool("VR_TELEPORT_BOUND_ITEMS"))
+set_if("VR_BAT_BOUND_ITEMS", "BatBoundItems", parse_bool("VR_BAT_BOUND_ITEMS"))
+
+set_if("VR_MATERIAL_YIELD_MODIFIER_GLOBAL", "MaterialYieldModifier_Global", parse_float("VR_MATERIAL_YIELD_MODIFIER_GLOBAL"))
+set_if("VR_INVENTORY_STACKS_MODIFIER", "InventoryStacksModifier", parse_float("VR_INVENTORY_STACKS_MODIFIER"))
+set_if("VR_CRAFT_RATE_MODIFIER", "CraftRateModifier", parse_float("VR_CRAFT_RATE_MODIFIER"))
+set_if("VR_REFINEMENT_RATE_MODIFIER", "RefinementRateModifier", parse_float("VR_REFINEMENT_RATE_MODIFIER"))
+set_if("VR_CASTLE_BLOOD_ESSENCE_DRAIN_MODIFIER", "CastleBloodEssenceDrainModifier", parse_float("VR_CASTLE_BLOOD_ESSENCE_DRAIN_MODIFIER"))
+set_if("VR_CASTLE_DECAY_RATE_MODIFIER", "CastleDecayRateModifier", parse_float("VR_CASTLE_DECAY_RATE_MODIFIER"))
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
 STEAMCMD="/home/steam/steamcmd/steamcmd.sh"
 STEAM_APP_ID="${STEAM_APP_ID:-1829350}"
 STEAM_INSTALL_DIR="${STEAM_INSTALL_DIR:-/data/server}"
@@ -441,6 +494,7 @@ PY
     else
       echo '{}' > "${game_path}"
     fi
+    apply_game_settings_overrides "${game_path}"
     if [[ "$(id -u)" -eq 0 ]]; then
       chown steam:steam "${game_path}" >/dev/null 2>&1 || true
     fi
