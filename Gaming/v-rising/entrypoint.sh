@@ -122,6 +122,19 @@ def parse_float(name):
         print(f"[vrising] Warning: {name} must be a number; ignoring: {v}", file=sys.stderr)
         return None
 
+def parse_int(name):
+    v = os.environ.get(name)
+    if v is None:
+        return None
+    v = str(v).strip()
+    if v == "":
+        return None
+    try:
+        return int(v)
+    except Exception:
+        print(f"[vrising] Warning: {name} must be an integer; ignoring: {v}", file=sys.stderr)
+        return None
+
 def set_if(name, key, value):
     if value is None:
         return
@@ -133,6 +146,13 @@ if mode:
         print(f"[vrising] Warning: VR_GAME_MODE_TYPE must be PvP or PvE; ignoring: {mode}", file=sys.stderr)
     else:
         data["GameModeType"] = mode
+
+clan_size = parse_int("VR_CLAN_SIZE")
+if clan_size is not None:
+    if clan_size < 1:
+        print(f"[vrising] Warning: VR_CLAN_SIZE must be >= 1; ignoring: {clan_size}", file=sys.stderr)
+    else:
+        data["ClanSize"] = clan_size
 
 set_if("VR_TELEPORT_BOUND_ITEMS", "TeleportBoundItems", parse_bool("VR_TELEPORT_BOUND_ITEMS"))
 set_if("VR_BAT_BOUND_ITEMS", "BatBoundItems", parse_bool("VR_BAT_BOUND_ITEMS"))
