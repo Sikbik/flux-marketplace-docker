@@ -1,0 +1,17 @@
+services:
+  abiotic-factor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: abiotic-factor-flux:local
+    container_name: abiotic-factor
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "7777:7777/udp"
+      - "7778:7778/udp"
+      - "27015:27015/udp"
+    volumes:
+      - ./abiotic-data:/data
+      - ./abiotic-config:/config

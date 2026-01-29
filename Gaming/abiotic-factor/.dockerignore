@@ -1,0 +1,6 @@
+*.log
+*.tmp
+.env
+abiotic-data/
+abiotic-config/
+**/.DS_Store

@@ -1,0 +1,64 @@
+{
+  "version": 8,
+  "name": "abioticfactor-flux",
+  "description": "Abiotic Factor Dedicated Server (SteamCMD + Wine). Uses local /data for Steam+cache and synced g:/config for saves. Ports: 7777/udp, 7778/udp, 27015/udp.",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 30,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "Abiotic Factor server (g:/config for saves; local /data install)",
+      "repotag": "littlestache/abiotic-factor-flux:latest",
+      "ports": [7777, 7778, 27015],
+      "containerPorts": [7777, 7778, 27015],
+      "domains": ["", "", ""],
+      "environmentParameters": [
+        "AF_SERVER_NAME=RunOnFlux - Abiotic Factor",
+        "AF_SERVER_PASSWORD=",
+        "AF_ADMIN_PASSWORD=",
+        "AF_MAX_PLAYERS=6",
+        "AF_PORT=7777",
+        "AF_QUERY_PORT=27015",
+        "AF_WORLD_SAVE_NAME=Cascade",
+        "AF_MODERATORS=",
+        "MANAGE_CONFIG=true",
+        "AUTO_UPDATE=true",
+        "STEAMCMD_VALIDATE=true",
+        "DISK_PREFLIGHT=true",
+        "MIN_FREE_GB=20",
+        "HARDEN_FLUX_VOLUME_BROWSER=true"
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 4,
+      "ram": 8000,
+      "hdd": 10,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}
