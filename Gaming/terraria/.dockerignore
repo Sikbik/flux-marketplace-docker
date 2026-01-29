@@ -1,0 +1,6 @@
+.env
+.env.*
+docker-compose.yml
+terraria-data/
+terraria-config/
+*.log

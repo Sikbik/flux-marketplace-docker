@@ -1,0 +1,44 @@
+services:
+  terraria:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: terraria-server
+    restart: unless-stopped
+
+    # Copy `.env.example` to `.env` and edit to customize.
+    environment:
+      AUTO_UPDATE: ${AUTO_UPDATE:-true}
+      TERRARIA_INSTALL_DIR: ${TERRARIA_INSTALL_DIR:-/data/server}
+      TERRARIA_SERVER_VERSION: ${TERRARIA_SERVER_VERSION:-}
+      TERRARIA_SERVER_URL: ${TERRARIA_SERVER_URL:-}
+      DISK_PREFLIGHT: ${DISK_PREFLIGHT:-true}
+      MIN_FREE_GB: ${MIN_FREE_GB:-2}
+      HARDEN_FLUX_VOLUME_BROWSER: ${HARDEN_FLUX_VOLUME_BROWSER:-true}
+
+      MANAGE_CONFIG: ${MANAGE_CONFIG:-true}
+      TERRARIA_CONFIG_PATH: ${TERRARIA_CONFIG_PATH:-/config/serverconfig.txt}
+      TERRARIA_PORT: ${TERRARIA_PORT:-7777}
+
+      TERRARIA_WORLD_NAME: ${TERRARIA_WORLD_NAME:-RunOnFlux World}
+      TERRARIA_WORLD_FILE: ${TERRARIA_WORLD_FILE:-}
+      TERRARIA_SERVER_PASSWORD: ${TERRARIA_SERVER_PASSWORD:-}
+      TERRARIA_MAX_PLAYERS: ${TERRARIA_MAX_PLAYERS:-16}
+      TERRARIA_MOTD: ${TERRARIA_MOTD:-Welcome to Terraria on Flux!}
+
+      TERRARIA_AUTOCREATE: ${TERRARIA_AUTOCREATE:-2}
+      TERRARIA_SEED: ${TERRARIA_SEED:-}
+      TERRARIA_DIFFICULTY: ${TERRARIA_DIFFICULTY:-0}
+      TERRARIA_SECURE: ${TERRARIA_SECURE:-true}
+      TERRARIA_UPNP: ${TERRARIA_UPNP:-false}
+
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+      TERRARIA_EXTRA_ARGS: ${TERRARIA_EXTRA_ARGS:-}
+
+    ports:
+      - "${TERRARIA_PORT:-7777}:7777/tcp"
+
+    volumes:
+      - ./terraria-data:/data
+      - ./terraria-config:/config

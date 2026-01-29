@@ -1,0 +1,71 @@
+{
+  "version": 8,
+  "name": "terraria-flux",
+  "description": "Terraria Dedicated Server (headless). Uses local /data for the server install and synced g:/config for worlds/config. Port: 7777/tcp.",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for the Terraria server install (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 10,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "Terraria server (g:/config for worlds; local /data install)",
+      "repotag": "littlestache/terraria-flux:latest",
+      "ports": [
+        7777
+      ],
+      "containerPorts": [
+        7777
+      ],
+      "domains": [
+        ""
+      ],
+      "environmentParameters": [
+        "AUTO_UPDATE=true",
+        "DISK_PREFLIGHT=true",
+        "MIN_FREE_GB=2",
+        "HARDEN_FLUX_VOLUME_BROWSER=true",
+        "MANAGE_CONFIG=true",
+        "TERRARIA_PORT=7777",
+        "TERRARIA_WORLD_NAME=RunOnFlux World",
+        "TERRARIA_SERVER_PASSWORD=",
+        "TERRARIA_MAX_PLAYERS=16",
+        "TERRARIA_MOTD=Welcome to Terraria on Flux!",
+        "TERRARIA_AUTOCREATE=2",
+        "TERRARIA_SEED=",
+        "TERRARIA_DIFFICULTY=0",
+        "TERRARIA_SECURE=true",
+        "TERRARIA_UPNP=false"
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 1,
+      "ram": 2000,
+      "hdd": 10,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}
