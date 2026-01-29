@@ -127,6 +127,13 @@ def set_if(name, key, value):
         return
     data[key] = value
 
+mode = (os.environ.get("VR_GAME_MODE_TYPE") or "").strip()
+if mode:
+    if mode not in ("PvP", "PvE"):
+        print(f"[vrising] Warning: VR_GAME_MODE_TYPE must be PvP or PvE; ignoring: {mode}", file=sys.stderr)
+    else:
+        data["GameModeType"] = mode
+
 set_if("VR_TELEPORT_BOUND_ITEMS", "TeleportBoundItems", parse_bool("VR_TELEPORT_BOUND_ITEMS"))
 set_if("VR_BAT_BOUND_ITEMS", "BatBoundItems", parse_bool("VR_BAT_BOUND_ITEMS"))
 

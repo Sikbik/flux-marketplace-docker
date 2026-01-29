@@ -79,6 +79,7 @@ To join in-game:
 
 These are some of the most commonly tweaked server settings. When `MANAGE_CONFIG=true`, this container will set these keys in `ServerGameSettings.json`:
 
+- `VR_GAME_MODE_TYPE` → `GameModeType` (`PvP` or `PvE`)
 - `VR_TELEPORT_BOUND_ITEMS` → `TeleportBoundItems` (`true`/`false`)
 - `VR_BAT_BOUND_ITEMS` → `BatBoundItems` (`true`/`false`)
 - `VR_MATERIAL_YIELD_MODIFIER_GLOBAL` → `MaterialYieldModifier_Global` (number)
