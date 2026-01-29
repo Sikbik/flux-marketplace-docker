@@ -37,7 +37,7 @@ services:
       TERRARIA_EXTRA_ARGS: ${TERRARIA_EXTRA_ARGS:-}
 
     ports:
-      - "${TERRARIA_PORT:-7777}:7777/tcp"
+      - "${TERRARIA_PORT:-7777}:${TERRARIA_PORT:-7777}/tcp"
 
     volumes:
       - ./terraria-data:/data
