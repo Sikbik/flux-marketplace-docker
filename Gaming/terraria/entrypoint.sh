@@ -144,13 +144,29 @@ guess_latest_version_from_wiki() {
     return 1
   fi
 
-  # Pick the highest `terraria-server-####.zip` found on the page.
+  # The wiki includes many historical downloads and uses numeric "version codes"
+  # like 1451 (Terraria Server v1.4.5.1) and 14481 (v1.4.4.8.1).
+  #
+  # A plain numeric max is WRONG here (14481 > 1451), so we convert the code to a
+  # dotted semantic string (1.4.4.8.1) and use version-sort.
   echo "${html}" \
     | tr '\r\n' ' ' \
     | grep -Eo 'terraria-server-[0-9]+\.zip' \
     | sed -E 's/^terraria-server-([0-9]+)\.zip$/\1/' \
-    | sort -n \
-    | tail -n 1
+    | awk '
+      function dotted(d, out, i, c) {
+        out = ""
+        for (i = 1; i <= length(d); i++) {
+          c = substr(d, i, 1)
+          out = out (i == 1 ? c : "." c)
+        }
+        return out
+      }
+      { print dotted($0) "|" $0 }
+    ' \
+    | sort -t'|' -k1,1V \
+    | tail -n 1 \
+    | cut -d'|' -f2
 }
 
 resolve_server_version() {
