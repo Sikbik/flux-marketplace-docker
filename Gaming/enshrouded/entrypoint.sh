@@ -85,6 +85,7 @@ steamcmd_update() {
 
   local steamcmd_log="${STEAMCMD_LOG_FILE:-${steamcmd_home}/steamcmd.log}"
   local parse_log="/tmp/steamcmd.parse.log"
+  local parse_plain="/tmp/steamcmd.parse.plain.log"
   local steamcmd_error_kind=""
 
   run_steamcmd() {
@@ -124,7 +125,7 @@ steamcmd_update() {
 
     cmd+=(+quit)
 
-    rm -f "${steamcmd_log}" "${parse_log}" >/dev/null 2>&1 || true
+    rm -f "${steamcmd_log}" "${parse_log}" "${parse_plain}" >/dev/null 2>&1 || true
 
     local rc=0
     set +e
@@ -139,13 +140,18 @@ steamcmd_update() {
     fi
 
     if [[ -f "${parse_log}" ]]; then
-      if grep -q "Missing configuration" "${parse_log}" 2>/dev/null; then
+      # SteamCMD output may contain ANSI escapes; strip them to make matching reliable across platforms/loggers.
+      sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "${parse_log}" | tr -d '\r' >"${parse_plain}" 2>/dev/null || true
+    fi
+
+    if [[ -f "${parse_plain}" ]]; then
+      if grep -q "Missing configuration" "${parse_plain}" 2>/dev/null; then
         steamcmd_error_kind="missing_configuration"
-      elif grep -q "Missing file permissions" "${parse_log}" 2>/dev/null; then
+      elif grep -q "Missing file permissions" "${parse_plain}" 2>/dev/null; then
         steamcmd_error_kind="missing_file_permissions"
-      elif grep -q "Disk write failure" "${parse_log}" 2>/dev/null; then
+      elif grep -q "Disk write failure" "${parse_plain}" 2>/dev/null; then
         steamcmd_error_kind="disk_write_failure"
-      elif grep -qi "No subscription" "${parse_log}" 2>/dev/null; then
+      elif grep -qi "No subscription" "${parse_plain}" 2>/dev/null; then
         steamcmd_error_kind="no_subscription"
       fi
     fi
@@ -154,40 +160,55 @@ steamcmd_update() {
   }
 
   log "Checking for server updates via SteamCMD..."
-  run_steamcmd
-  local rc=$?
-  if (( rc == 0 )); then
-    return 0
-  fi
 
-  if [[ "${steamcmd_error_kind}" == "missing_file_permissions" ]] && [[ "$(id -u)" -eq 0 ]]; then
-    log "SteamCMD returned Missing file permissions; fixing ownership and retrying once..."
-    chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" >/dev/null 2>&1 || true
+  local attempt=1
+  local max_attempts=3
+  local rc=0
+  while (( attempt <= max_attempts )); do
     run_steamcmd
     rc=$?
     if (( rc == 0 )); then
       return 0
     fi
-  fi
 
-  if [[ "${steamcmd_error_kind}" == "missing_configuration" ]] && is_true "${STEAMCMD_RESET_ON_MISSING_CONFIG:-true}"; then
-    log "SteamCMD returned Missing configuration; wiping ${steamcmd_home}/Steam/config and retrying once..."
-    rm -rf "${steamcmd_home}/Steam/config" "${steamcmd_home}/Steam/appcache" >/dev/null 2>&1 || true
-    run_steamcmd
-    rc=$?
-    if (( rc == 0 )); then
-      return 0
+    # Attempt 1: aggressively repair the common Flux-first-run failures even if parsing didn't classify the error.
+    if (( attempt == 1 )); then
+      if [[ "$(id -u)" -eq 0 ]]; then
+        log "SteamCMD failed; repairing permissions under ${STEAM_INSTALL_DIR} and ${steamcmd_home}..."
+        chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" >/dev/null 2>&1 || true
+      fi
+      log "SteamCMD failed; wiping ${steamcmd_home}/Steam/config and retrying..."
+      rm -rf "${steamcmd_home}/Steam/config" "${steamcmd_home}/Steam/appcache" >/dev/null 2>&1 || true
+      attempt=$((attempt + 1))
+      continue
     fi
-  fi
 
-  if is_true "${STEAMCMD_VALIDATE:-true}" && is_true "${STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL:-true}"; then
-    log "SteamCMD failed with validate enabled; retrying once with STEAMCMD_VALIDATE=false..."
-    STEAMCMD_VALIDATE=false run_steamcmd
-    rc=$?
-    if (( rc == 0 )); then
-      return 0
+    # Attempt 2: do targeted fixes if we recognized a specific error.
+    if [[ "${steamcmd_error_kind}" == "missing_file_permissions" ]] && [[ "$(id -u)" -eq 0 ]]; then
+      log "SteamCMD returned Missing file permissions; fixing ownership and retrying..."
+      chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" >/dev/null 2>&1 || true
+      attempt=$((attempt + 1))
+      continue
     fi
-  fi
+    if [[ "${steamcmd_error_kind}" == "missing_configuration" ]] && is_true "${STEAMCMD_RESET_ON_MISSING_CONFIG:-true}"; then
+      log "SteamCMD returned Missing configuration; wiping ${steamcmd_home}/Steam/config and retrying..."
+      rm -rf "${steamcmd_home}/Steam/config" "${steamcmd_home}/Steam/appcache" >/dev/null 2>&1 || true
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    # Attempt 3: retry without validate (faster, and occasionally avoids edge-case failures).
+    if is_true "${STEAMCMD_VALIDATE:-true}" && is_true "${STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL:-true}"; then
+      log "SteamCMD failed with validate enabled; retrying with STEAMCMD_VALIDATE=false..."
+      STEAMCMD_VALIDATE=false run_steamcmd
+      rc=$?
+      if (( rc == 0 )); then
+        return 0
+      fi
+    fi
+
+    break
+  done
 
   if [[ "${steamcmd_error_kind}" == "no_subscription" ]]; then
     log_err "SteamCMD indicates No subscription. Set STEAM_LOGIN/STEAM_PASSWORD to a Steam account that owns Enshrouded."
