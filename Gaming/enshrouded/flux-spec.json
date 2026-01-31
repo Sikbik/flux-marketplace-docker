@@ -1,0 +1,69 @@
+{
+  "version": 8,
+  "name": "enshrouded-flux",
+  "description": "Enshrouded Dedicated Server (SteamCMD + Wine). Uses local /data for install/cache and synced g:/config for persistent config + saves. Port: 15637/udp.",
+  "owner": "YOUR_ZELID_HERE",
+  "compose": [
+    {
+      "name": "data",
+      "description": "Local cache volume for Steam (not synced)",
+      "repotag": "alpine:3.20",
+      "ports": [],
+      "domains": [],
+      "environmentParameters": [],
+      "commands": [
+        "sh",
+        "-lc",
+        "while true; do sleep 3600; done"
+      ],
+      "containerPorts": [],
+      "containerData": "/data",
+      "cpu": 0.1,
+      "ram": 200,
+      "hdd": 35,
+      "repoauth": ""
+    },
+    {
+      "name": "server",
+      "description": "Enshrouded server (g:/config for saves; local /data install)",
+      "repotag": "littlestache/enshrouded-flux:latest",
+      "ports": [
+        15637
+      ],
+      "containerPorts": [
+        15637
+      ],
+      "domains": [
+        ""
+      ],
+      "environmentParameters": [
+        "ENS_SERVER_NAME=RunOnFlux - Enshrouded",
+        "ENS_PASSWORD=CHANGE_ME",
+        "ENS_SLOT_COUNT=16",
+        "ENS_QUERY_PORT=15637",
+        "ENS_IP=0.0.0.0",
+        "ENS_GAME_SETTINGS_PRESET=Default",
+        "ENS_ENABLE_TEXT_CHAT=false",
+        "ENS_ENABLE_VOICE_CHAT=false",
+        "ENS_VOICE_CHAT_MODE=Proximity",
+        "AUTO_UPDATE=true",
+        "STEAMCMD_VALIDATE=true",
+        "STEAM_BRANCH="
+      ],
+      "commands": [],
+      "containerData": "g:/config|0:/data",
+      "cpu": 6,
+      "ram": 16000,
+      "hdd": 10,
+      "repoauth": ""
+    }
+  ],
+  "instances": 3,
+  "contacts": [],
+  "geolocation": [],
+  "expire": 22000,
+  "nodes": [],
+  "staticip": false,
+  "enterprise": ""
+}
+

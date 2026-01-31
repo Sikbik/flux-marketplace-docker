@@ -1,0 +1,26 @@
+services:
+  data:
+    image: alpine:3.20
+    command: ["sh", "-lc", "while true; do sleep 3600; done"]
+    volumes:
+      - enshrouded_data:/data
+
+  server:
+    build: .
+    image: littlestache/enshrouded-flux:local
+    depends_on:
+      - data
+    env_file:
+      - .env
+    ports:
+      - "15637:15637/udp"
+      # If you run a strict firewall, Steam may require additional ports per Valve's "Required Ports for Steam".
+      - "27015:27015/udp"
+    volumes:
+      - enshrouded_data:/data
+      - enshrouded_config:/config
+
+volumes:
+  enshrouded_data:
+  enshrouded_config:
+

@@ -11,3 +11,4 @@
 - `soulmask/` → Soulmask dedicated server (SteamCMD, headless, Flux-friendly)
 - `project-zomboid/` → Project Zomboid dedicated server (SteamCMD, headless, Flux-friendly)
 - `rust/` → Rust dedicated server (SteamCMD, headless, Flux-friendly)
+- `enshrouded/` → Enshrouded dedicated server (SteamCMD + Wine, Flux-friendly)
