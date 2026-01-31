@@ -76,6 +76,16 @@ steamcmd_update() {
     return 0
   fi
 
+  # Steam/SteamCMD can crash with:
+  # "FATAL: Steam cannot run. Please delete some /tmp/dumps* directories or change their ownership..."
+  # This can happen on platforms that restart the same container writable layer.
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chmod 1777 /tmp >/dev/null 2>&1 || true
+    rm -rf /tmp/dumps* /tmp/steam-dumps* >/dev/null 2>&1 || true
+    mkdir -p /tmp/dumps >/dev/null 2>&1 || true
+    chown -R steam:steam /tmp/dumps >/dev/null 2>&1 || true
+  fi
+
   local steamcmd_home="${STEAMCMD_HOME:-/data/steam}"
   mkdir -p "${steamcmd_home}" >/dev/null 2>&1 || true
 
