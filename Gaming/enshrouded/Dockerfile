@@ -6,6 +6,10 @@ FROM cm2network/steamcmd:root
 LABEL org.opencontainers.image.title="Enshrouded Dedicated Server (Flux-friendly)"
 LABEL org.opencontainers.image.description="SteamCMD + Wine wrapper for Enshrouded Dedicated Server, designed for Flux volumes."
 
+ARG IMAGE_VERSION=dev
+LABEL org.opencontainers.image.revision="${IMAGE_VERSION}"
+ENV IMAGE_VERSION="${IMAGE_VERSION}"
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # SteamCMD / install
