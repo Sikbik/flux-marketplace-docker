@@ -209,11 +209,17 @@ ensure_config() {
   if [[ -n "${ENS_SERVER_JSON_B64:-}" ]]; then
     log "Writing enshrouded_server.json from ENS_SERVER_JSON_B64..."
     echo "${ENS_SERVER_JSON_B64}" | base64 -d | write_json_tmp_replace "${config_path}"
+    if [[ "$(id -u)" -eq 0 ]]; then
+      chown -R steam:steam "${config_dir}" >/dev/null 2>&1 || true
+    fi
     return 0
   fi
   if [[ -n "${ENS_SERVER_JSON:-}" ]]; then
     log "Writing enshrouded_server.json from ENS_SERVER_JSON..."
     printf '%s\n' "${ENS_SERVER_JSON}" | write_json_tmp_replace "${config_path}"
+    if [[ "$(id -u)" -eq 0 ]]; then
+      chown -R steam:steam "${config_dir}" >/dev/null 2>&1 || true
+    fi
     return 0
   fi
 
@@ -370,6 +376,11 @@ with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp, path)
 PY
+  fi
+
+  # Ensure the server user can write saves/logs on mounted volumes.
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown -R steam:steam "${config_dir}" >/dev/null 2>&1 || true
   fi
 }
 
