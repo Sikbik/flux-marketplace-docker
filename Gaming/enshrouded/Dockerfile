@@ -20,6 +20,8 @@ ENV STEAM_APP_ID=2278520 \
     STEAMCMD_EXTRA_ARGS= \
     STEAMCMD_HOME=/data/steam \
     STEAMCMD_LOG_FILE=/data/steam/steamcmd.log \
+    STEAMCMD_RESET_ON_MISSING_CONFIG=true \
+    STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL=true \
     STEAMCMD_VALIDATE=true \
     AUTO_UPDATE=true \
     DISK_PREFLIGHT=true \
@@ -111,4 +113,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25m --retries=3 \
   CMD /healthcheck.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-

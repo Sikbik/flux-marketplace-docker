@@ -83,63 +83,111 @@ steamcmd_update() {
     chown -R steam:steam "${steamcmd_home}" >/dev/null 2>&1 || true
   fi
 
-  local login_args=("+login" "${STEAM_LOGIN:-anonymous}")
-  if [[ "${STEAM_LOGIN:-anonymous}" != "anonymous" ]]; then
-    login_args+=("${STEAM_PASSWORD:-}")
-    if [[ -n "${STEAM_GUARD:-}" ]]; then
-      login_args+=("${STEAM_GUARD}")
+  local steamcmd_log="${STEAMCMD_LOG_FILE:-${steamcmd_home}/steamcmd.log}"
+  local steamcmd_error_kind=""
+
+  run_steamcmd() {
+    steamcmd_error_kind=""
+
+    local -a cmd
+    cmd=("${STEAMCMD}" +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1)
+
+    if [[ -n "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}" ]]; then
+      cmd+=(+@sSteamCmdForcePlatformType "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}")
     fi
-  fi
 
-  local app_update_args=("+app_update" "${STEAM_APP_ID}")
-  if is_true "${STEAMCMD_VALIDATE:-true}"; then
-    app_update_args+=("validate")
-  fi
+    cmd+=(+force_install_dir "${STEAM_INSTALL_DIR}")
 
-  if [[ -n "${STEAM_BRANCH:-}" ]]; then
-    app_update_args+=("-beta" "${STEAM_BRANCH}")
+    if [[ "${STEAM_LOGIN:-anonymous}" == "anonymous" ]]; then
+      cmd+=(+login anonymous)
+    else
+      cmd+=(+login "${STEAM_LOGIN}" "${STEAM_PASSWORD:-}" "${STEAM_GUARD:-}")
+    fi
+
+    cmd+=(+app_update "${STEAM_APP_ID}")
+
+    if [[ -n "${STEAM_BRANCH:-}" ]]; then
+      cmd+=(-beta "${STEAM_BRANCH}")
+    fi
     if [[ -n "${STEAM_BRANCH_PASSWORD:-}" ]]; then
-      app_update_args+=("-betapassword" "${STEAM_BRANCH_PASSWORD}")
+      cmd+=(-betapassword "${STEAM_BRANCH_PASSWORD}")
     fi
-  fi
+    if is_true "${STEAMCMD_VALIDATE:-true}"; then
+      cmd+=(validate)
+    fi
 
-  local extra=()
-  if [[ -n "${STEAMCMD_EXTRA_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    extra=(${STEAMCMD_EXTRA_ARGS})
-  fi
+    if [[ -n "${STEAMCMD_EXTRA_ARGS:-}" ]]; then
+      # shellcheck disable=SC2206
+      cmd+=(${STEAMCMD_EXTRA_ARGS})
+    fi
 
-  local tries=3
-  local attempt=1
-  while (( attempt <= tries )); do
-    log "Updating Enshrouded via SteamCMD (attempt ${attempt}/${tries})..."
+    cmd+=(+quit)
+
+    rm -f "${steamcmd_log}" >/dev/null 2>&1 || true
+
+    local rc=0
     set +e
-    run_as_steam "${STEAMCMD}" \
-      +@sSteamCmdForcePlatformType "${STEAMCMD_FORCE_PLATFORM_TYPE:-windows}" \
-      +force_install_dir "${STEAM_INSTALL_DIR}" \
-      "${login_args[@]}" \
-      "${app_update_args[@]}" \
-      "${extra[@]}" \
-      +quit \
-      2>&1 | tee "${STEAMCMD_LOG_FILE}"
-    local rc="${PIPESTATUS[0]}"
+    run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}" 2>&1 | tee "${steamcmd_log}"
+    rc="${PIPESTATUS[0]}"
     set -e
 
-    if [[ "${rc}" -eq 0 ]]; then
+    if [[ -f "${steamcmd_log}" ]]; then
+      if grep -q "Missing configuration" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="missing_configuration"
+      elif grep -q "Missing file permissions" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="missing_file_permissions"
+      elif grep -q "Disk write failure" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="disk_write_failure"
+      elif grep -qi "No subscription" "${steamcmd_log}" 2>/dev/null; then
+        steamcmd_error_kind="no_subscription"
+      fi
+    fi
+
+    return "${rc}"
+  }
+
+  log "Checking for server updates via SteamCMD..."
+  run_steamcmd
+  local rc=$?
+  if (( rc == 0 )); then
+    return 0
+  fi
+
+  if [[ "${steamcmd_error_kind}" == "missing_file_permissions" ]] && [[ "$(id -u)" -eq 0 ]]; then
+    log "SteamCMD returned Missing file permissions; fixing ownership and retrying once..."
+    chown -R steam:steam "${STEAM_INSTALL_DIR}" "${steamcmd_home}" >/dev/null 2>&1 || true
+    run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
       return 0
     fi
+  fi
 
-    log_err "SteamCMD failed (exit: ${rc})."
-    if (( attempt < tries )); then
-      sleep $((2 * attempt))
+  if [[ "${steamcmd_error_kind}" == "missing_configuration" ]] && is_true "${STEAMCMD_RESET_ON_MISSING_CONFIG:-true}"; then
+    log "SteamCMD returned Missing configuration; wiping ${steamcmd_home}/Steam/config and retrying once..."
+    rm -rf "${steamcmd_home}/Steam/config" "${steamcmd_home}/Steam/appcache" >/dev/null 2>&1 || true
+    run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
+      return 0
     fi
-    attempt=$((attempt + 1))
-  done
+  fi
 
-  log_err "SteamCMD update failed after ${tries} attempts."
-  log_err "If you see a 'No subscription' error, set STEAM_LOGIN/STEAM_PASSWORD to a Steam account that owns Enshrouded."
-  log_err "SteamCMD log: ${STEAMCMD_LOG_FILE}"
-  exit 1
+  if is_true "${STEAMCMD_VALIDATE:-true}" && is_true "${STEAMCMD_RETRY_NO_VALIDATE_ON_FAIL:-true}"; then
+    log "SteamCMD failed with validate enabled; retrying once with STEAMCMD_VALIDATE=false..."
+    STEAMCMD_VALIDATE=false run_steamcmd
+    rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+  fi
+
+  if [[ "${steamcmd_error_kind}" == "no_subscription" ]]; then
+    log_err "SteamCMD indicates No subscription. Set STEAM_LOGIN/STEAM_PASSWORD to a Steam account that owns Enshrouded."
+  fi
+
+  log_err "SteamCMD failed (rc=${rc}). See ${steamcmd_log} and ${steamcmd_home}/Steam/logs for details."
+  return "${rc}"
 }
 
 ensure_config() {
@@ -455,4 +503,3 @@ set -e
 
 log "Server exited with code ${rc}."
 exit "${rc}"
-
