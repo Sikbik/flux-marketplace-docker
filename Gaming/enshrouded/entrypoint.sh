@@ -84,6 +84,7 @@ steamcmd_update() {
   fi
 
   local steamcmd_log="${STEAMCMD_LOG_FILE:-${steamcmd_home}/steamcmd.log}"
+  local parse_log="/tmp/steamcmd.parse.log"
   local steamcmd_error_kind=""
 
   run_steamcmd() {
@@ -123,22 +124,28 @@ steamcmd_update() {
 
     cmd+=(+quit)
 
-    rm -f "${steamcmd_log}" >/dev/null 2>&1 || true
+    rm -f "${steamcmd_log}" "${parse_log}" >/dev/null 2>&1 || true
 
     local rc=0
     set +e
-    run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}" 2>&1 | tee "${steamcmd_log}"
+    # Always tee into /tmp for reliable parsing even if /data permissions are odd on a platform.
+    run_as_steam env HOME="${steamcmd_home}" "${cmd[@]}" 2>&1 | tee "${parse_log}"
     rc="${PIPESTATUS[0]}"
     set -e
 
-    if [[ -f "${steamcmd_log}" ]]; then
-      if grep -q "Missing configuration" "${steamcmd_log}" 2>/dev/null; then
+    # Best-effort copy for operator convenience. This must not affect parsing/retries.
+    if [[ -f "${parse_log}" ]]; then
+      cp -f "${parse_log}" "${steamcmd_log}" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -f "${parse_log}" ]]; then
+      if grep -q "Missing configuration" "${parse_log}" 2>/dev/null; then
         steamcmd_error_kind="missing_configuration"
-      elif grep -q "Missing file permissions" "${steamcmd_log}" 2>/dev/null; then
+      elif grep -q "Missing file permissions" "${parse_log}" 2>/dev/null; then
         steamcmd_error_kind="missing_file_permissions"
-      elif grep -q "Disk write failure" "${steamcmd_log}" 2>/dev/null; then
+      elif grep -q "Disk write failure" "${parse_log}" 2>/dev/null; then
         steamcmd_error_kind="disk_write_failure"
-      elif grep -qi "No subscription" "${steamcmd_log}" 2>/dev/null; then
+      elif grep -qi "No subscription" "${parse_log}" 2>/dev/null; then
         steamcmd_error_kind="no_subscription"
       fi
     fi
