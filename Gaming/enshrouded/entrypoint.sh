@@ -495,7 +495,7 @@ trap term_handler TERM INT
 cd "${STEAM_INSTALL_DIR}"
 
 set +e
-run_as_steam wine64 "./${ENS_EXE_NAME}" ${ENS_EXTRA_ARGS:-} &
+run_as_steam wine "./${ENS_EXE_NAME}" ${ENS_EXTRA_ARGS:-} &
 server_pid="$!"
 wait "${server_pid}"
 rc="$?"
