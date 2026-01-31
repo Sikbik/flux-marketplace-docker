@@ -232,7 +232,7 @@ ensure_config() {
   local install_dir="${STEAM_INSTALL_DIR}"
   local config_dir="${ENS_CONFIG_DIR:-/config}"
   local save_dir="${ENS_SAVE_DIR:-/config/savegame}"
-  local log_dir="${ENS_LOG_DIR:-/config/logs}"
+  local log_dir="${ENS_LOG_DIR:-/data/logs}"
 
   mkdir -p "${config_dir}" "${save_dir}" "${log_dir}"
 
@@ -418,7 +418,7 @@ PY
 
   # Ensure the server user can write saves/logs on mounted volumes.
   if [[ "$(id -u)" -eq 0 ]]; then
-    chown -R steam:steam "${config_dir}" >/dev/null 2>&1 || true
+    chown -R steam:steam "${config_dir}" "${save_dir}" "${log_dir}" >/dev/null 2>&1 || true
   fi
 }
 

@@ -37,7 +37,7 @@ ENV STEAM_APP_ID=2278520 \
 # - /config: synced config + saves (recommended on Flux via g:/)
 ENV ENS_CONFIG_DIR=/config \
     ENS_SAVE_DIR=/config/savegame \
-    ENS_LOG_DIR=/config/logs
+    ENS_LOG_DIR=/data/logs
 
 # Config management (enshrouded_server.json)
 ENV MANAGE_CONFIG=true \

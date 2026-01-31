@@ -25,8 +25,8 @@ Steam:
 - `/config` — persistent config + saves + logs (on Flux use `g:/config`)
   - `/config/enshrouded_server.json` (managed/updated by this container)
   - `/config/savegame`
-  - `/config/logs`
 - `/data` — Steam install + SteamCMD cache (on Flux keep this local to the node)
+  - `/data/logs` (default) — server log files (kept local for performance)
 
 ## Quick start (Docker)
 
@@ -88,6 +88,13 @@ Password behavior:
 
 - `HARDEN_FLUX_VOLUME_BROWSER` (default: `true`) — sets restrictive permissions on the large `/data` directory trees to reduce Flux volume explorer load.
 
+### Logs location (Flux performance)
+
+By default this container keeps server logs **local** under `/data/logs` to avoid constant syncthing churn on `g:/config`.  
+If you really want logs replicated with your world data, set:
+
+- `ENS_LOG_DIR=/config/logs`
+
 ## Recommended server specs (official guidance)
 
 Per Enshrouded official recommendations:
@@ -131,4 +138,3 @@ Cleanup:
 docker compose down -v
 rm -rf enshrouded-config enshrouded-data
 ```
-
